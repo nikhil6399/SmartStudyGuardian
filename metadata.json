@@ -1,0 +1,8 @@
+{
+  "name": "JEE AI Study Guardian",
+  "description": "Complete Android Kotlin Jetpack Compose JEE preparation suite, AI Study Tutor, Mock Test Engine, Smart Study Planner, App Blocker, YouTube & AI Content Filters, and AdMob-ready architecture.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

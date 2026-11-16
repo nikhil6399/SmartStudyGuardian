@@ -1,0 +1,49 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-sans: 'DM Sans', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+  }
+
+  code, pre, .font-mono {
+    font-family: var(--font-mono);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.katex-student-scope {
+  font-variant-numeric: normal;
+}
+
+.katex-student-scope .katex {
+  font-size: 1.03em;
+  line-height: 1.45;
+  color: inherit;
+}
+
+.katex-student-scope .katex-display {
+  margin: 0.45rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25rem 0.125rem;
+  max-width: 100%;
+}
+
+.katex-student-scope .katex-display > .katex {
+  white-space: nowrap;
+}
+

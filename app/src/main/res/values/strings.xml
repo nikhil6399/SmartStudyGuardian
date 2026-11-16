@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">JEE AI Study Guardian</string>
+    <string name="accessibility_service_label">JEE Study Guardian App &amp; Focus Filter</string>
+    <string name="accessibility_service_description">Helps block user-selected distracting apps and filter user-configured YouTube distractions strictly during active Study Focus sessions. Never collects passwords, personal messages, or screenshots.</string>
+</resources>
