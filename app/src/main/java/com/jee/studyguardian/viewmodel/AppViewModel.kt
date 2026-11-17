@@ -176,6 +176,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _authErrorMessage = MutableStateFlow<String?>(null)
     val authErrorMessage: StateFlow<String?> = _authErrorMessage.asStateFlow()
 
+    private val _authSuccessMessage = MutableStateFlow<String?>(null)
+    val authSuccessMessage: StateFlow<String?> = _authSuccessMessage.asStateFlow()
+
     val firebaseAuthState: StateFlow<FirebaseAuthUiState> = FirebaseSyncManager.authState
 
     val pomodoroManager = PomodoroTimerManager(
@@ -708,6 +711,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun clearAuthError() {
         _authErrorMessage.value = null
+        _authSuccessMessage.value = null
+    }
+
+    fun setAuthError(message: String) {
+        _authErrorMessage.value = message
     }
 
     fun signInWithEmail(email: String, password: String) = viewModelScope.launch {
@@ -719,6 +727,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             onSuccess = {
                 FirebaseSyncManager.logEvent(app, "firebase_login", mapOf("method" to "email"))
                 _statusBannerMessage.value = "Signed in to Firebase!"
+            },
+            onFailure = { err ->
+                val msg = FirebaseSyncManager.friendlyAuthError(err)
+                _authErrorMessage.value = msg
+                _statusBannerMessage.value = msg
+            }
+        )
+    }
+
+    fun signInWithGoogle(idToken: String) = viewModelScope.launch {
+        _authActionLoading.value = true
+        _authErrorMessage.value = null
+        val result = FirebaseSyncManager.signInWithGoogleCredential(idToken)
+        _authActionLoading.value = false
+        result.fold(
+            onSuccess = {
+                FirebaseSyncManager.logEvent(app, "firebase_login", mapOf("method" to "google"))
+                _statusBannerMessage.value = "Signed in with Google successfully!"
             },
             onFailure = { err ->
                 val msg = FirebaseSyncManager.friendlyAuthError(err)
@@ -746,14 +772,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    fun sendPasswordReset(email: String) = viewModelScope.launch {
+    fun sendPasswordReset(email: String, isHindi: Boolean = false) = viewModelScope.launch {
         _authActionLoading.value = true
         _authErrorMessage.value = null
+        _authSuccessMessage.value = null
         val result = FirebaseSyncManager.sendPasswordReset(email)
         _authActionLoading.value = false
         result.fold(
             onSuccess = {
-                _statusBannerMessage.value = "Password reset email sent! Check your inbox."
+                val successText = if (isHindi) {
+                    "पासवर्ड रीसेट लिंक $email पर भेज दिया गया है! कृपया अपना इनबॉक्स और स्पैम (Spam/Junk) फोल्डर चेक करें।"
+                } else {
+                    "Password reset link sent to $email! Please check your inbox and spam/junk folder."
+                }
+                _authSuccessMessage.value = successText
+                _statusBannerMessage.value = successText
             },
             onFailure = { err ->
                 val msg = FirebaseSyncManager.friendlyAuthError(err)

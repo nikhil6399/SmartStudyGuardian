@@ -55,9 +55,23 @@ android {
             ?: System.getenv("UNITY_GAME_ID")
             ?: "800441454"
         buildConfigField("String", "UNITY_GAME_ID", "\"$unityGameId\"")
+
+        val webClientId = project.findProperty("WEB_CLIENT_ID")?.toString()
+            ?: System.getenv("WEB_CLIENT_ID")
+            ?: "237357970564-20fegsf1ehp070mbi5v4kam19jo2gnh1.apps.googleusercontent.com"
+        buildConfigField("String", "WEB_CLIENT_ID", "\"$webClientId\"")
     }
 
     signingConfigs {
+        getByName("debug") {
+            val debugKs = file("debug.keystore")
+            if (debugKs.exists()) {
+                storeFile = debugKs
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
         create("release") {
             val keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
             if (!keystorePath.isNullOrBlank()) {
@@ -72,6 +86,10 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
+            val debugKs = file("debug.keystore")
+            if (debugKs.exists()) {
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
         release {
             isMinifyEnabled = true
@@ -136,6 +154,7 @@ dependencies {
     implementation(libs.okhttp)
 
     implementation(libs.play.services.ads)
+    implementation(libs.play.services.auth)
     implementation(libs.unity.ads)
     implementation(libs.user.messaging.platform)
     implementation(libs.androidx.biometric)

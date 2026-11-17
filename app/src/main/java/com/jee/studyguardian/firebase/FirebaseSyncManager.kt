@@ -12,6 +12,7 @@ import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.UserProfileChangeRequest
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -131,6 +132,19 @@ object FirebaseSyncManager {
             analytics.logEvent(eventName, bundle)
         } catch (_: Throwable) {
             // Safe no-op when analytics unavailable
+        }
+    }
+
+    suspend fun signInWithGoogleCredential(idToken: String): Result<FirebaseAuthUiState> {
+        return try {
+            val credential = GoogleAuthProvider.getCredential(idToken, null)
+            val auth = FirebaseAuth.getInstance()
+            val result = auth.signInWithCredential(credential).await()
+            val mapped = mapUser(result.user)
+            _authState.value = mapped
+            Result.success(mapped)
+        } catch (t: Throwable) {
+            Result.failure(t)
         }
     }
 

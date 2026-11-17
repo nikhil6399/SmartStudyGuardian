@@ -60,7 +60,12 @@ jobs:
                     "package_name": "com.studyguardian.ai"
                   }
                 },
-                "oauth_client": [],
+                "oauth_client": [
+                  {
+                    "client_id": "237357970564-20fegsf1ehp070mbi5v4kam19jo2gnh1.apps.googleusercontent.com",
+                    "client_type": 3
+                  }
+                ],
                 "api_key": [
                   {
                     "current_key": "AIzaSyB8qXBVA5jrv5BkKTaSuGoaotvgjwLPnJI"
@@ -76,6 +81,21 @@ jobs:
             "configuration_version": "1"
           }
           EOF
+
+      - name: Verify Debug Keystore & Print Fingerprints
+        shell: bash
+        run: |
+          if [ ! -f app/debug.keystore ]; then
+            keytool -genkey -v -keystore app/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          echo "=== ANDROID DEBUG SIGNING FINGERPRINTS ==="
+          keytool -list -v -keystore app/debug.keystore -alias androiddebugkey -storepass android | grep -E "(SHA1|SHA256):" || true
+          SHA1_VAL=$(keytool -list -v -keystore app/debug.keystore -alias androiddebugkey -storepass android | grep "SHA1:" | head -n 1 | awk '{print $2}' || true)
+          SHA256_VAL=$(keytool -list -v -keystore app/debug.keystore -alias androiddebugkey -storepass android | grep "SHA256:" | head -n 1 | awk '{print $2}' || true)
+          echo "### 🔑 Android Debug Fingerprints for Firebase" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package Name:** \`com.studyguardian.ai\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **SHA-1:** \`$SHA1_VAL\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **SHA-256:** \`$SHA256_VAL\`" >> $GITHUB_STEP_SUMMARY
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4

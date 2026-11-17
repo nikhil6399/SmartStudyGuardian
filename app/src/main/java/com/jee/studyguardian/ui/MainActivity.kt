@@ -2,8 +2,14 @@ package com.jee.studyguardian.ui
 
 import android.app.Activity
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import com.jee.studyguardian.BuildConfig
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -123,6 +129,7 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
     val authState by viewModel.firebaseAuthState.collectAsState()
     val authLoading by viewModel.authActionLoading.collectAsState()
     val authError by viewModel.authErrorMessage.collectAsState()
+    val authSuccess by viewModel.authSuccessMessage.collectAsState()
     var showClassDialog by remember { mutableStateOf(false) }
 
     var hasPassedSessionUnlock by rememberSaveable { mutableStateOf(false) }
@@ -187,6 +194,31 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
         return
     }
 
+    val googleSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+            try {
+                val account = task.getResult(ApiException::class.java)
+                val idToken = account?.idToken
+                if (!idToken.isNullOrBlank()) {
+                    viewModel.signInWithGoogle(idToken)
+                } else {
+                    viewModel.setAuthError("Google Sign-In: idToken is null. Please verify SHA-1 fingerprint in Firebase Console.")
+                }
+            } catch (e: ApiException) {
+                val statusMsg = when (e.statusCode) {
+                    10 -> "Developer Error (Code 10): SHA-1 fingerprint missing or package name mismatch in Firebase Console."
+                    12500 -> "Sign-In Error (Code 12500): Google Play Services / Firebase configuration error."
+                    12501, 12502 -> "Google sign-in was canceled."
+                    else -> "Google Sign-In failed (${e.statusCode}): ${e.localizedMessage ?: "Unknown error"}"
+                }
+                viewModel.setAuthError(statusMsg)
+            }
+        }
+    }
+
     if (!authState.isSignedIn) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -196,11 +228,22 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
                     language = prefs.language,
                     isLoading = authLoading,
                     authError = authError,
+                    authSuccessMessage = authSuccess,
                     onClearError = viewModel::clearAuthError,
                     onChangeLanguage = viewModel::setLanguage,
+                    onSignInGoogle = {
+                        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                            .requestIdToken(BuildConfig.WEB_CLIENT_ID)
+                            .requestEmail()
+                            .build()
+                        val client = GoogleSignIn.getClient(context, gso)
+                        googleSignInLauncher.launch(client.signInIntent)
+                    },
                     onSignInEmail = viewModel::signInWithEmail,
                     onRegisterEmail = viewModel::registerWithEmail,
-                    onSendPasswordReset = viewModel::sendPasswordReset
+                    onSendPasswordReset = { email ->
+                        viewModel.sendPasswordReset(email, prefs.language == LanguageMode.HINDI)
+                    }
                 )
             }
         }
