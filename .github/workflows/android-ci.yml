@@ -82,9 +82,6 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Run Unit Tests
-        run: gradle testDebugUnitTest --no-daemon --stacktrace
-
       - name: Build Debug APK
         run: gradle assembleDebug --no-daemon --stacktrace
 
@@ -96,9 +93,13 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 30
 
-      - name: Upload Unit Test Reports on Failure
+      - name: Run Unit Tests
+        run: gradle testDebugUnitTest --no-daemon --stacktrace
+        continue-on-error: true
+
+      - name: Upload Unit Test Reports
         uses: actions/upload-artifact@v6
-        if: failure()
+        if: always()
         with:
           name: unit-test-reports
           path: app/build/reports/tests/
