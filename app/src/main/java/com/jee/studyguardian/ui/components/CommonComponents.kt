@@ -1,5 +1,6 @@
 package com.jee.studyguardian.ui.components
 
+import android.app.Activity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -7,7 +8,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,13 +29,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.jee.studyguardian.ads.AdManager
 import com.jee.studyguardian.models.ExamTrack
 import com.jee.studyguardian.models.LanguageMode
 
@@ -179,4 +187,40 @@ fun PermissionRationaleDialog(
             }
         }
     )
+}
+
+@Composable
+fun AdaptiveStudyBannerAd(
+    personalizedAdsEnabled: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val activity = context as? Activity ?: return
+    val widthDp = (LocalConfiguration.current.screenWidthDp - 32).coerceAtLeast(320)
+
+    GuardianCard(modifier = modifier) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Study Support Ad (AdMob · Unity)",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            key(personalizedAdsEnabled) {
+                AndroidView(
+                    modifier = Modifier.fillMaxWidth(),
+                    factory = {
+                        AdManager.createBannerContainerWithFallback(
+                            activity = activity,
+                            widthDp = widthDp,
+                            personalizedAdsEnabled = personalizedAdsEnabled
+                        )
+                    }
+                )
+            }
+        }
+    }
 }

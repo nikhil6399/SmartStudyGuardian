@@ -896,4 +896,5 @@ export const INITIAL_APP_STATE: PersistedAppState = {
   studyMusicTrackId: 'lofi_chords',
   studyMusicVolume: 0.45,
   studyMusicAutoWithFocus: true,
+  biometricLockEnabled: false,
 };

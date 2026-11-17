@@ -1,16 +1,37 @@
 import React, { useEffect, useState } from 'react';
-import { BellRing, Check, Download, Eye, EyeOff, HelpCircle, KeyRound, Moon, ShieldCheck, Sun, Trash2, Upload } from 'lucide-react';
+import type { User } from 'firebase/auth';
+import { BellRing, Check, Cloud, Download, Eye, EyeOff, Fingerprint, HelpCircle, KeyRound, Lock, LogIn, LogOut, Moon, RefreshCw, ShieldCheck, Sun, Trash2, Upload } from 'lucide-react';
 import { STUDY_LEVEL_OPTIONS } from '../data/jeeCatalog';
 import { PersistedAppState, Subject } from '../types';
+import {
+  clearWebBiometricCredentials,
+  enrollWebBiometric,
+  hasEnrolledWebBiometric,
+  hasFallbackStudyPin,
+  isPlatformBiometricAvailable,
+  setFallbackStudyPin,
+} from '../utils/biometricWebAuth';
 import { maskApiKey } from '../utils/localStorageState';
 
 export function SettingsTab({
   state,
+  firebaseUser,
+  syncStatus,
+  onSignInGoogle,
+  onSignOutGoogle,
+  onSyncCloudNow,
+  onLockAppNow,
   onUpdateSettings,
   onRestoreBackup,
   onClearAllData,
 }: {
   state: PersistedAppState;
+  firebaseUser: User | null;
+  syncStatus: string | null;
+  onSignInGoogle: () => Promise<void>;
+  onSignOutGoogle: () => Promise<void>;
+  onSyncCloudNow: () => Promise<void>;
+  onLockAppNow: () => void;
   onUpdateSettings: (patch: Partial<PersistedAppState>) => void;
   onRestoreBackup: (json: string) => boolean;
   onClearAllData: () => void;
@@ -23,10 +44,20 @@ export function SettingsTab({
   const [apiKeyInput, setApiKeyInput] = useState(state.customGeminiApiKey || '');
   const [showApiKey, setShowApiKey] = useState(false);
   const [keySavedToast, setKeySavedToast] = useState(false);
+  const [biometricSupported, setBiometricSupported] = useState(false);
+  const [biometricEnrolled, setBiometricEnrolled] = useState(() => hasEnrolledWebBiometric());
+  const [hasPin, setHasPin] = useState(() => hasFallbackStudyPin());
+  const [pinInput, setPinInput] = useState('');
+  const [securityMessage, setSecurityMessage] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
 
   useEffect(() => {
     setApiKeyInput(state.customGeminiApiKey || '');
   }, [state.customGeminiApiKey]);
+
+  useEffect(() => {
+    void isPlatformBiometricAvailable().then(setBiometricSupported);
+  }, []);
 
   const requestNotificationsIfSupported = () => {
     if (
@@ -315,8 +346,260 @@ export function SettingsTab({
         </div>
       </div>
 
-      {/* Right Column: 6. Privacy Policy, 7. Help and Support, 8. Backup and Restore */}
+      {/* Right Column: Cloud Sync, Fingerprint Lock, Backup, Privacy Policy & Help */}
       <div className="lg:col-span-5 space-y-6">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0A173B] p-6 space-y-4">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white inline-flex items-center gap-2">
+                <Cloud className="w-4 h-4 text-cyan-500" />
+                <span>{isHindi ? 'Firebase लॉगिन व क्लाउड सिंक' : 'Firebase Auth & Cloud Sync'}</span>
+              </h2>
+              <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
+                {firebaseUser
+                  ? isHindi
+                    ? `साइन इन: ${firebaseUser.displayName || firebaseUser.email}`
+                    : `Signed in as ${firebaseUser.displayName || firebaseUser.email}`
+                  : isHindi
+                  ? 'प्रगति, XP और स्ट्रीक को क्लाउड में सहेजने के लिए Google से साइन इन करें।'
+                  : 'Sign in with Google to sync your progress, XP, and study streak to Firebase.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2.5">
+            {firebaseUser ? (
+              <>
+                <button
+                  type="button"
+                  disabled={authLoading}
+                  onClick={async () => {
+                    setAuthLoading(true);
+                    try {
+                      await onSyncCloudNow();
+                    } finally {
+                      setAuthLoading(false);
+                    }
+                  }}
+                  className="min-h-[42px] px-4 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>{isHindi ? 'अभी सिंक करें' : 'Sync Now'}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={authLoading}
+                  onClick={async () => {
+                    setAuthLoading(true);
+                    try {
+                      await onSignOutGoogle();
+                    } finally {
+                      setAuthLoading(false);
+                    }
+                  }}
+                  className="min-h-[42px] px-4 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-semibold inline-flex items-center gap-1.5"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>{isHindi ? 'साइन आउट' : 'Sign Out'}</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                disabled={authLoading}
+                onClick={async () => {
+                  setAuthLoading(true);
+                  try {
+                    await onSignInGoogle();
+                  } finally {
+                    setAuthLoading(false);
+                  }
+                }}
+                className="min-h-[44px] px-4 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs inline-flex items-center gap-2 disabled:opacity-50"
+              >
+                <LogIn className="w-4 h-4" />
+                <span>{authLoading ? (isHindi ? 'जुड़ रहा है...' : 'Signing in...') : isHindi ? 'Google से साइन इन करें' : 'Sign in with Google'}</span>
+              </button>
+            )}
+          </div>
+          {syncStatus && <p className="text-xs font-medium text-cyan-600 dark:text-cyan-400">{syncStatus}</p>}
+
+          {firebaseUser && (
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {isHindi
+                    ? `प्रोफ़ाइल में सहेजे गए टेस्ट (${state.testHistory.length})`
+                    : `Saved Tests in Profile (${state.testHistory.length})`}
+                </p>
+                <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                  {isHindi ? 'क्लाउड सिंक्ड' : 'Cloud Synced'}
+                </span>
+              </div>
+              {state.testHistory.length === 0 ? (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {isHindi
+                    ? 'अभी तक कोई मॉक टेस्ट सबमिट नहीं हुआ है। आपका पहला टेस्ट यहाँ स्वतः सहेजा जाएगा।'
+                    : 'No mock tests taken yet. Completed tests automatically save to your Firebase profile.'}
+                </p>
+              ) : (
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                  {state.testHistory.slice(0, 8).map((test) => (
+                    <div
+                      key={test.id}
+                      className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#06102B] px-3 py-2 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                          {test.title}
+                        </p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                          {test.subjectLabel} · {new Date(test.timestamp).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-xs font-bold text-cyan-600 dark:text-cyan-400 tabular-nums">
+                          {test.score}/{test.maxScore}
+                        </p>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 tabular-nums">
+                          {Math.round(test.accuracyPercent)}%
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0A173B] p-6 space-y-4">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white inline-flex items-center gap-2">
+                <Fingerprint className="w-4 h-4 text-emerald-500" />
+                <span>{isHindi ? 'फिंगरप्रिंट व ऐप लॉक' : 'Fingerprint & App Lock'}</span>
+              </h2>
+              <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
+                {biometricSupported
+                  ? isHindi
+                    ? 'डिवाइस फिंगरप्रिंट / बायोमेट्रिक से अपने अध्ययन डैशबोर्ड को सुरक्षित करें।'
+                    : 'Protect your study notes and analytics with device fingerprint or a backup Study PIN.'
+                  : isHindi
+                  ? 'बायोमेट्रिक या 4-अंकीय Study PIN से अपने डैशबोर्ड को लॉक करें।'
+                  : 'Secure your study dashboard with device biometric or a 4-digit fallback Study PIN.'}
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              aria-label="Enable Fingerprint App Lock"
+              checked={Boolean(state.biometricLockEnabled)}
+              onChange={async (e) => {
+                const enabled = e.target.checked;
+                if (!enabled) {
+                  onUpdateSettings({ biometricLockEnabled: false });
+                  setSecurityMessage(isHindi ? 'ऐप लॉक बंद कर दिया गया।' : 'App lock disabled.');
+                  return;
+                }
+                if (!biometricEnrolled && !hasPin) {
+                  const res = await enrollWebBiometric(firebaseUser?.email || 'student@studyguardian.ai');
+                  setBiometricEnrolled(res.ok || hasEnrolledWebBiometric());
+                  if (res.ok) {
+                    onUpdateSettings({ biometricLockEnabled: true });
+                    setSecurityMessage(res.message);
+                  } else {
+                    setSecurityMessage(res.message);
+                  }
+                } else {
+                  onUpdateSettings({ biometricLockEnabled: true });
+                  setSecurityMessage(isHindi ? 'ऐप लॉक सक्रिय हो गया।' : 'App lock enabled.');
+                }
+              }}
+              className="h-5 w-5 accent-cyan-500 mt-1"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                const res = await enrollWebBiometric(firebaseUser?.email || 'student@studyguardian.ai');
+                const enrolled = res.ok || hasEnrolledWebBiometric();
+                setBiometricEnrolled(enrolled);
+                if (enrolled) {
+                  onUpdateSettings({ biometricLockEnabled: true });
+                }
+                setSecurityMessage(res.message);
+              }}
+              className="min-h-[40px] px-3.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-700 dark:text-emerald-300 text-xs font-semibold inline-flex items-center gap-1.5"
+            >
+              <Fingerprint className="w-3.5 h-3.5" />
+              <span>
+                {biometricEnrolled
+                  ? isHindi
+                    ? 'फिंगरप्रिंट पंजीकृत'
+                    : 'Fingerprint Enrolled'
+                  : isHindi
+                  ? 'फिंगरप्रिंट सेट करें'
+                  : 'Enroll Fingerprint'}
+              </span>
+            </button>
+            {(biometricEnrolled || hasPin) && state.biometricLockEnabled && (
+              <button
+                type="button"
+                onClick={onLockAppNow}
+                className="min-h-[40px] px-3.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-semibold inline-flex items-center gap-1.5"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>{isHindi ? 'अभी लॉक करें' : 'Lock Now'}</span>
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={6}
+              value={pinInput}
+              onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder={isHindi ? '4-6 अंकों का PIN सेट करें' : 'Set 4-6 digit Study PIN'}
+              className="flex-1 min-h-[40px] px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#06102B] text-xs font-mono"
+            />
+            <button
+              type="button"
+              disabled={pinInput.length < 4}
+              onClick={() => {
+                setFallbackStudyPin(pinInput);
+                setHasPin(true);
+                setPinInput('');
+                onUpdateSettings({ biometricLockEnabled: true });
+                setSecurityMessage(isHindi ? 'Study PIN सहेजा गया और लॉक सक्रिय हुआ।' : 'Study PIN saved & App Lock enabled.');
+              }}
+              className="min-h-[40px] px-3.5 rounded-xl bg-cyan-500 text-slate-950 font-semibold text-xs disabled:opacity-40"
+            >
+              {isHindi ? 'PIN सेव करें' : 'Save PIN'}
+            </button>
+          </div>
+
+          {(biometricEnrolled || hasPin) && (
+            <button
+              type="button"
+              onClick={() => {
+                clearWebBiometricCredentials();
+                setBiometricEnrolled(false);
+                setHasPin(false);
+                onUpdateSettings({ biometricLockEnabled: false });
+                setSecurityMessage(isHindi ? 'फिंगरप्रिंट और PIN हटाए गए।' : 'Fingerprint & Study PIN cleared.');
+              }}
+              className="text-[11px] font-semibold text-red-600 dark:text-red-400 hover:underline"
+            >
+              {isHindi ? 'बायोमेट्रिक / PIN रीसेट करें' : 'Clear Fingerprint & PIN'}
+            </button>
+          )}
+          {securityMessage && <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">{securityMessage}</p>}
+        </div>
+
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0A173B] p-6 space-y-4">
           <h2 className="text-lg font-bold text-slate-900 dark:text-white">
             {isHindi ? 'बैकअप और रिस्टोर' : 'Backup and Restore'}
@@ -382,8 +665,8 @@ export function SettingsTab({
           </h3>
           <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
             {isHindi
-              ? 'आपके नोट्स, अध्याय प्रगति और मॉक टेस्ट स्कोर सुरक्षित रूप से आपके डिवाइस पर रहते हैं। किसी लॉगिन या खाते की आवश्यकता नहीं है।'
-              : 'Your notes, syllabus progress, timetable, and mock test history are saved privately on your device. No account or login is required.'}
+              ? 'आपकी अध्ययन प्रगति, नोट्स और सभी दिए गए मॉक टेस्ट सुरक्षित रूप से आपके Firebase छात्र खाते और इस डिवाइस पर सहेजे जाते हैं।'
+              : 'Your notes, syllabus progress, and all completed mock test records are securely stored in your Firebase student profile and cached locally on your device.'}
           </p>
           <div className="flex flex-wrap gap-2.5 pt-1">
             <button
@@ -411,7 +694,7 @@ export function SettingsTab({
               {isHindi ? 'गोपनीयता नीति — AI Study Guardian' : 'Privacy Policy — AI Study Guardian'}
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              AI Study Guardian keeps your syllabus progress, personal notes, mock test scores, and study preferences privately on your device. No sign-up, phone number, or personal account is collected. Focus Shield controls never read your messages, passwords, or screenshots.
+              AI Study Guardian associates your syllabus progress, study streaks, and completed mock test records exclusively with your signed-in Firebase account, while keeping personal notes cached on your device. Focus Shield controls never read your messages, passwords, or screenshots.
             </p>
             <button
               onClick={() => setShowPrivacyModal(false)}

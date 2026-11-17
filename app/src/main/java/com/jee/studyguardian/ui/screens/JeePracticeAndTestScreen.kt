@@ -56,6 +56,7 @@ import com.jee.studyguardian.models.LanguageMode
 import com.jee.studyguardian.models.MockTestConfig
 import com.jee.studyguardian.models.PracticeQuestion
 import com.jee.studyguardian.models.Subject
+import com.jee.studyguardian.ui.components.AdaptiveStudyBannerAd
 import com.jee.studyguardian.ui.components.GuardianCard
 import com.jee.studyguardian.utils.TimeFormatters
 import com.jee.studyguardian.viewmodel.ActiveMockTestState
@@ -353,6 +354,10 @@ fun JeePracticeScreen(
                     }
                 }
             }
+        }
+
+        item {
+            AdaptiveStudyBannerAd(personalizedAdsEnabled = prefs.personalizedAdsEnabled)
         }
     }
 

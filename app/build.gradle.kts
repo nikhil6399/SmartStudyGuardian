@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -10,7 +11,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.jee.studyguardian"
+        applicationId = "com.studyguardian.ai"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -49,6 +50,11 @@ android {
         buildConfigField("String", "ADMOB_INTERSTITIAL_ID", "\"$interstitialUnitId\"")
         buildConfigField("String", "ADMOB_REWARDED_ID", "\"$rewardedUnitId\"")
         buildConfigField("String", "ADMOB_NATIVE_ID", "\"$nativeUnitId\"")
+
+        val unityGameId = project.findProperty("UNITY_GAME_ID")?.toString()
+            ?: System.getenv("UNITY_GAME_ID")
+            ?: "800441454"
+        buildConfigField("String", "UNITY_GAME_ID", "\"$unityGameId\"")
     }
 
     signingConfigs {
@@ -65,7 +71,6 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".debug"
             isMinifyEnabled = false
         }
         release {
@@ -127,10 +132,18 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.okhttp)
 
     implementation(libs.play.services.ads)
+    implementation(libs.unity.ads)
     implementation(libs.user.messaging.platform)
+    implementation(libs.androidx.biometric)
+
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
+    implementation(libs.firebase.firestore)
+    implementation(libs.firebase.analytics)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

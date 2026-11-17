@@ -24,6 +24,8 @@ import com.jee.studyguardian.database.StudyGoalEntity
 import com.jee.studyguardian.database.StudyNoteEntity
 import com.jee.studyguardian.database.TimetableSlotEntity
 import com.jee.studyguardian.filters.AiContentFilterEngine
+import com.jee.studyguardian.firebase.FirebaseAuthUiState
+import com.jee.studyguardian.firebase.FirebaseSyncManager
 import com.jee.studyguardian.models.ChapterStrength
 import com.jee.studyguardian.models.ExamTrack
 import com.jee.studyguardian.models.FilterClassificationResult
@@ -168,6 +170,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _statusBannerMessage = MutableStateFlow<String?>(null)
     val statusBannerMessage: StateFlow<String?> = _statusBannerMessage.asStateFlow()
 
+    private val _authActionLoading = MutableStateFlow(false)
+    val authActionLoading: StateFlow<Boolean> = _authActionLoading.asStateFlow()
+
+    private val _authErrorMessage = MutableStateFlow<String?>(null)
+    val authErrorMessage: StateFlow<String?> = _authErrorMessage.asStateFlow()
+
+    val firebaseAuthState: StateFlow<FirebaseAuthUiState> = FirebaseSyncManager.authState
+
     val pomodoroManager = PomodoroTimerManager(
         scope = viewModelScope,
         onStudyCycleCompleted = { minutes ->
@@ -187,8 +197,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var mockTestTimerJob: Job? = null
     private var focusTickerJob: Job? = null
+    private var lastHydratedUid: String? = null
 
     init {
+        FirebaseSyncManager.initialize(app)
         startFocusTicker()
         viewModelScope.launch {
             val prefs = container.preferencesManager.preferencesFlow.first()
@@ -197,6 +209,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 selectedSubject = prefs.aiDefaultSubject
             )
         }
+        viewModelScope.launch {
+            FirebaseSyncManager.authState.collect { auth ->
+                val uid = auth.uid
+                if (auth.isSignedIn && !uid.isNullOrBlank() && uid != lastHydratedUid) {
+                    lastHydratedUid = uid
+                    hydrateAndSyncCloudProfile()
+                } else if (!auth.isSignedIn) {
+                    lastHydratedUid = null
+                }
+            }
+        }
     }
 
     fun selectClassTrack(track: ExamTrack) {
@@ -204,6 +227,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             container.preferencesManager.setSelectedExamTrack(track)
             _tutorState.value = _tutorState.value.copy(selectedLevel = track.toStudyLevel())
         }
+    }
+
+    fun showNotice(message: String) {
+        _statusBannerMessage.value = message
     }
 
     fun clearBanner() {
@@ -392,12 +419,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             container.mockTestRepository.saveResult(result)
+            FirebaseSyncManager.logEvent(
+                app,
+                "mock_test_completed",
+                mapOf("track" to state.config.track.name, "score" to score.toString())
+            )
             state.questions.forEach { q ->
                 val picked = state.selectedAnswers[q.id]
                 if (picked != null) {
                     container.studyRepository.recordPracticeAttempt(q.chapterId, picked == q.correctOptionIndex)
                 }
             }
+            val prefs = preferences.value
+            val completedIds = chapterProgress.value.filter { it.isCompleted }.map { it.chapterId }
+            val testsCount = container.database.mockTestResultDao().getAllOnce().size
+            val computedXp = prefs.bonusXpPoints + completedIds.size * 50 + testsCount * 30
+            FirebaseSyncManager.saveMockTestResult(
+                result = result,
+                selectedExamTrack = prefs.selectedExamTrack.name,
+                studyStreakDays = prefs.studyStreakDays,
+                xpPoints = computedXp,
+                biometricEnabled = prefs.biometricLockEnabled
+            )
+            syncProgressToCloud(silent = true)
         }
     }
 
@@ -648,6 +692,132 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun setAdPreferences(personalized: Boolean, ageAppropriate: Boolean) = viewModelScope.launch {
         container.preferencesManager.setAdPreferences(personalized, ageAppropriate)
+    }
+    fun setBiometricLockEnabled(enabled: Boolean) = viewModelScope.launch {
+        container.preferencesManager.setBiometricLockEnabled(enabled)
+        _statusBannerMessage.value = if (enabled) {
+            "Fingerprint / Screen Lock enabled."
+        } else {
+            "Fingerprint / Screen Lock disabled."
+        }
+    }
+    fun awardBonusStudyXp(points: Int) = viewModelScope.launch {
+        container.preferencesManager.addBonusXpPoints(points)
+        FirebaseSyncManager.logEvent(app, "bonus_xp_earned", mapOf("points" to points.toString()))
+        _statusBannerMessage.value = "+$points Bonus Study XP added!"
+    }
+    fun clearAuthError() {
+        _authErrorMessage.value = null
+    }
+
+    fun signInWithEmail(email: String, password: String) = viewModelScope.launch {
+        _authActionLoading.value = true
+        _authErrorMessage.value = null
+        val result = FirebaseSyncManager.signInWithEmail(email, password)
+        _authActionLoading.value = false
+        result.fold(
+            onSuccess = {
+                FirebaseSyncManager.logEvent(app, "firebase_login", mapOf("method" to "email"))
+                _statusBannerMessage.value = "Signed in to Firebase!"
+            },
+            onFailure = { err ->
+                val msg = FirebaseSyncManager.friendlyAuthError(err)
+                _authErrorMessage.value = msg
+                _statusBannerMessage.value = msg
+            }
+        )
+    }
+
+    fun registerWithEmail(displayName: String, email: String, password: String) = viewModelScope.launch {
+        _authActionLoading.value = true
+        _authErrorMessage.value = null
+        val result = FirebaseSyncManager.registerWithEmail(displayName, email, password)
+        _authActionLoading.value = false
+        result.fold(
+            onSuccess = {
+                FirebaseSyncManager.logEvent(app, "firebase_register", mapOf("method" to "email"))
+                _statusBannerMessage.value = "Account created! Your study profile is ready."
+            },
+            onFailure = { err ->
+                val msg = FirebaseSyncManager.friendlyAuthError(err)
+                _authErrorMessage.value = msg
+                _statusBannerMessage.value = msg
+            }
+        )
+    }
+
+    fun sendPasswordReset(email: String) = viewModelScope.launch {
+        _authActionLoading.value = true
+        _authErrorMessage.value = null
+        val result = FirebaseSyncManager.sendPasswordReset(email)
+        _authActionLoading.value = false
+        result.fold(
+            onSuccess = {
+                _statusBannerMessage.value = "Password reset email sent! Check your inbox."
+            },
+            onFailure = { err ->
+                val msg = FirebaseSyncManager.friendlyAuthError(err)
+                _authErrorMessage.value = msg
+                _statusBannerMessage.value = msg
+            }
+        )
+    }
+
+    fun signOutFirebase() {
+        lastHydratedUid = null
+        FirebaseSyncManager.signOut()
+        _authErrorMessage.value = null
+        _statusBannerMessage.value = "Signed out from Firebase."
+    }
+
+    private suspend fun hydrateAndSyncCloudProfile() {
+        runCatching {
+            val cloudSummary = FirebaseSyncManager.fetchCloudStudySummary().getOrNull()
+            val cloudTests = FirebaseSyncManager.fetchCloudMockTests().getOrNull().orEmpty()
+            if (cloudTests.isNotEmpty()) {
+                container.mockTestRepository.mergeCloudResults(cloudTests)
+            }
+            if (cloudSummary != null && cloudSummary.completedChapterIds.isNotEmpty()) {
+                container.studyRepository.markChaptersCompleted(cloudSummary.completedChapterIds)
+            }
+            syncProgressToCloudInternal(silent = true)
+        }
+    }
+
+    fun syncProgressToCloud(silent: Boolean = false) = viewModelScope.launch {
+        syncProgressToCloudInternal(silent = silent)
+    }
+
+    private suspend fun syncProgressToCloudInternal(silent: Boolean) {
+        val prefs = preferences.value
+        val completedIds = container.database.chapterProgressDao().getAllOnce()
+            .filter { it.isCompleted }
+            .map { it.chapterId }
+        val totalFocusMin = container.database.focusSessionDao().getAllOnce()
+            .sumOf { it.actualMinutes }
+        val allTests = container.database.mockTestResultDao().getAllOnce()
+        val testsCount = allTests.size
+        val computedXp = prefs.bonusXpPoints + completedIds.size * 50 + testsCount * 30
+        val result = FirebaseSyncManager.syncStudyProgress(
+            selectedExamTrack = prefs.selectedExamTrack.name,
+            studyStreakDays = prefs.studyStreakDays,
+            xpPoints = computedXp,
+            biometricEnabled = prefs.biometricLockEnabled,
+            dailyGoalMinutes = prefs.dailyGoalMinutes,
+            totalFocusMinutes = totalFocusMin,
+            totalMockTests = testsCount,
+            completedChapterIds = completedIds,
+            recentMockTests = allTests
+        )
+        if (!silent) {
+            _statusBannerMessage.value = result.fold(
+                onSuccess = {
+                    FirebaseSyncManager.logEvent(app, "cloud_sync_completed")
+                    "Synced $testsCount tests & profile progress to Firebase!"
+                },
+                onFailure = { err -> FirebaseSyncManager.friendlyAuthError(err) }
+            )
+        }
     }
     fun setNegativeMarking(enabled: Boolean) = viewModelScope.launch { container.preferencesManager.setNegativeMarking(enabled) }
     fun setPomodoroDurations(studyMin: Int, breakMin: Int) = viewModelScope.launch {

@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlarmClock, Bell, BellRing, BookOpen, GraduationCap, Home, Music2, Pause, Play, Settings, Shield, SkipForward, Sparkles, X } from 'lucide-react';
+import type { User } from 'firebase/auth';
+import { AlarmClock, Bell, BellRing, BookOpen, Cloud, Fingerprint, GraduationCap, Home, LogIn, Music2, Pause, Play, Settings, Shield, SkipForward, Sparkles, X } from 'lucide-react';
 import { AiTutorTab } from './components/AiTutorTab';
 import { AlarmsView } from './components/AlarmsView';
+import { AuthGateScreen } from './components/AuthGateScreen';
 import { BlockerAndFocusTab } from './components/BlockerAndFocusTab';
 import { ClassSelectionModal } from './components/ClassSelectionView';
 import { HomeTab } from './components/HomeTab';
@@ -9,8 +11,24 @@ import { AnalyticsView, PlannerView } from './components/PlannerAndAnalyticsView
 import { PracticeAndTestTab } from './components/PracticeAndTestTab';
 import { SettingsTab } from './components/SettingsAndSourceTab';
 import { buildDailyChallengesForDate, EXAM_TRACK_LABELS, getLocalDateIso, INITIAL_APP_STATE } from './data/jeeCatalog';
-import { DailyChallengeCategory, ExamTrack, MainTab, PersistedAppState, StudyAlarm, SubView } from './types';
+import {
+  formatFirebaseAuthError,
+  loadCloudMockTests,
+  loadCloudStudyState,
+  saveMockTestResultToCloud,
+  signInWithGoogle,
+  signOutFirebase,
+  subscribeToAuth,
+  syncStudyStateToCloud,
+} from './firebase';
+import { DailyChallengeCategory, ExamTrack, MainTab, MockTestResult, PersistedAppState, StudyAlarm, SubView } from './types';
 import { formatTime12h, startAlarmRingLoop, stopAlarmRingLoop } from './utils/alarmAudio';
+import {
+  hasEnrolledWebBiometric,
+  hasFallbackStudyPin,
+  verifyFallbackStudyPin,
+  verifyWebBiometric,
+} from './utils/biometricWebAuth';
 import { clearPersistedState, loadPersistedState, sanitizePersistedState, savePersistedState, sendLocalNotificationSafe } from './utils/localStorageState';
 import { BUILTIN_STUDY_TRACKS, studyMusicPlayer, StudyMusicTrack } from './utils/studyMusicPlayer';
 
@@ -125,6 +143,104 @@ function AppContent() {
   const [musicLoop, setMusicLoop] = useState(true);
   const [musicCurrentSec, setMusicCurrentSec] = useState(0);
   const [musicDurationSec, setMusicDurationSec] = useState(0);
+
+  // Firebase Auth, Cloud Sync & Fingerprint Lock state
+  const [authReady, setAuthReady] = useState<boolean>(false);
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const stateRef = useRef<PersistedAppState>(state);
+  stateRef.current = state;
+  const [isAppUnlocked, setIsAppUnlocked] = useState<boolean>(() => {
+    const initial = loadPersistedState();
+    if (!initial.biometricLockEnabled) return true;
+    return !hasEnrolledWebBiometric() && !hasFallbackStudyPin();
+  });
+  const [unlockPin, setUnlockPin] = useState('');
+  const [unlockFeedback, setUnlockFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unsub = subscribeToAuth(async (user) => {
+      setFirebaseUser(user);
+      setAuthReady(true);
+      if (!user) {
+        setSyncStatus(null);
+        return;
+      }
+      try {
+        const [cloud, cloudTests] = await Promise.all([
+          loadCloudStudyState(user),
+          loadCloudMockTests(user),
+        ]);
+
+        const currentState = stateRef.current;
+        const mergedChapterProgress = { ...currentState.chapterProgress };
+        if (cloud?.completedChapterIds?.length) {
+          for (const chapterId of cloud.completedChapterIds) {
+            const existing = mergedChapterProgress[chapterId] ?? {
+              completed: false,
+              revisionCount: 0,
+              practiceAttempted: 0,
+              practiceCorrect: 0,
+            };
+            mergedChapterProgress[chapterId] = { ...existing, completed: true };
+          }
+        }
+
+        const mergedTestMap = new Map<string, MockTestResult>();
+        for (const item of [...cloudTests, ...currentState.testHistory]) {
+          const dedupKey = `${item.id}_${item.timestamp}_${item.score}`;
+          if (!mergedTestMap.has(dedupKey)) {
+            mergedTestMap.set(dedupKey, item);
+          }
+        }
+        const mergedTests = Array.from(mergedTestMap.values()).sort((a, b) => b.timestamp - a.timestamp);
+
+        const mergedState: PersistedAppState = {
+          ...currentState,
+          chapterProgress: mergedChapterProgress,
+          testHistory: mergedTests,
+          studyStreakDays: Math.max(currentState.studyStreakDays, cloud?.studyStreakDays ?? 1),
+        };
+
+        setState(mergedState);
+        const synced = await syncStudyStateToCloud(user, mergedState);
+        setSyncStatus(
+          `Synced with Firebase (${mergedTests.length} saved tests · ${synced.xpPoints} XP · ${synced.studyStreakDays}d streak)`
+        );
+      } catch (err) {
+        console.error('[Firebase Auth Sync]', err);
+        setSyncStatus('Signed in. Cloud sync will retry automatically.');
+      }
+    });
+    return unsub;
+  }, []);
+
+  const handleSignInGoogle = async () => {
+    try {
+      const user = await signInWithGoogle();
+      if (user) {
+        const snap = await syncStudyStateToCloud(user, stateRef.current);
+        setSyncStatus(`Signed in & synced (${user.displayName || user.email} · ${snap.totalMockTests} tests)`);
+      }
+    } catch (err) {
+      setSyncStatus(formatFirebaseAuthError(err, stateRef.current.language === 'hi'));
+    }
+  };
+
+  const handleSignOutGoogle = async () => {
+    await signOutFirebase();
+    setSyncStatus(null);
+  };
+
+  const handleSyncCloudNow = async () => {
+    if (!firebaseUser) return;
+    try {
+      const snap = await syncStudyStateToCloud(firebaseUser, stateRef.current);
+      setSyncStatus(`Synced ${snap.totalMockTests} saved tests, ${snap.completedChapterIds.length} chapters & ${snap.xpPoints} XP.`);
+    } catch (err) {
+      setSyncStatus(err instanceof Error ? err.message : 'Sync failed');
+    }
+  };
 
   const allMusicTracks = [...BUILTIN_STUDY_TRACKS, ...customMusicTracks];
   const activeMusicTrack =
@@ -546,6 +662,28 @@ function AppContent() {
   const activeTrackMeta = EXAM_TRACK_LABELS[state.selectedClassTrack] ?? EXAM_TRACK_LABELS.CLASS_12_BOARD;
   const activeTrackLabel = isHindi ? activeTrackMeta.hi : activeTrackMeta.en;
 
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-[#050C24] text-slate-900 dark:text-slate-100 flex items-center justify-center p-6">
+        <div className="text-center space-y-3">
+          <div className="mx-auto h-10 w-10 rounded-full border-4 border-cyan-500 border-t-transparent animate-spin" />
+          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+            {isHindi ? 'आपकी प्रोफ़ाइल लोड हो रही है...' : 'Loading your student profile...'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!firebaseUser) {
+    return (
+      <AuthGateScreen
+        language={state.language}
+        onChangeLanguage={(lang) => setState((s) => ({ ...s, language: lang }))}
+      />
+    );
+  }
+
   const navLabels = {
     home: isHindi ? 'होम' : 'Home',
     tutor: isHindi ? 'AI गुरु' : 'AI Tutor',
@@ -641,6 +779,26 @@ function AppContent() {
             >
               <GraduationCap className="w-3.5 h-3.5 text-cyan-500" />
               <span>{activeTrackLabel}</span>
+            </button>
+            <button
+              onClick={() => {
+                if (firebaseUser) {
+                  void handleSyncCloudNow();
+                } else {
+                  void handleSignInGoogle();
+                }
+              }}
+              className={`min-h-[38px] px-3 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap ${
+                firebaseUser
+                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                  : 'border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-[#0A173B] hover:border-cyan-500/60 text-slate-800 dark:text-slate-100'
+              }`}
+              title={firebaseUser ? 'Sync study progress to Firebase' : 'Sign in with Google'}
+            >
+              {firebaseUser ? <Cloud className="w-3.5 h-3.5 text-emerald-500" /> : <LogIn className="w-3.5 h-3.5 text-cyan-500" />}
+              <span className="hidden md:inline">
+                {firebaseUser ? (isHindi ? 'सिंक' : 'Synced') : isHindi ? 'लॉगिन' : 'Sign In'}
+              </span>
             </button>
             <button
               onClick={() => {
@@ -858,17 +1016,30 @@ function AppContent() {
                   ],
                 }))
               }
-              onSaveMockTestResult={(res) =>
-                setState((s) =>
-                  withChallengeCompleted(
+              onSaveMockTestResult={(res) => {
+                setState((s) => {
+                  const next = withChallengeCompleted(
                     {
                       ...s,
                       testHistory: [res, ...s.testHistory],
                     },
                     'MOCK_TEST'
-                  )
-                )
-              }
+                  );
+                  if (firebaseUser) {
+                    void saveMockTestResultToCloud(firebaseUser, next, res)
+                      .then(() => syncStudyStateToCloud(firebaseUser, next))
+                      .then((snap) => {
+                        setSyncStatus(
+                          `Saved test "${res.title}" to Firebase (${snap.totalMockTests} total · ${snap.xpPoints} XP)`
+                        );
+                      })
+                      .catch((err) => {
+                        console.error('[Mock Test Cloud Save]', err);
+                      });
+                  }
+                  return next;
+                });
+              }}
               onSaveDailyAiSet={(newSet) =>
                 setState((s) => ({
                   ...s,
@@ -1070,6 +1241,16 @@ function AppContent() {
           ) : (
             <SettingsTab
               state={state}
+              firebaseUser={firebaseUser}
+              syncStatus={syncStatus}
+              onSignInGoogle={handleSignInGoogle}
+              onSignOutGoogle={handleSignOutGoogle}
+              onSyncCloudNow={handleSyncCloudNow}
+              onLockAppNow={() => {
+                setUnlockPin('');
+                setUnlockFeedback(null);
+                setIsAppUnlocked(false);
+              }}
               onUpdateSettings={(patch) => setState((s) => ({ ...s, ...patch }))}
               onRestoreBackup={(json) => {
                 try {
@@ -1264,6 +1445,79 @@ function AppContent() {
           >
             <SkipForward className="w-3.5 h-3.5" />
           </button>
+        </div>
+      )}
+      {/* Fingerprint / Biometric Study Lock Overlay */}
+      {state.biometricLockEnabled && !isAppUnlocked && (
+        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-lg flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-3xl border border-cyan-500/40 bg-white dark:bg-[#08153B] p-6 space-y-5 text-center shadow-2xl">
+            <div className="mx-auto h-14 w-14 rounded-2xl bg-emerald-500/15 text-emerald-500 flex items-center justify-center">
+              <Fingerprint className="w-7 h-7" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                {isHindi ? 'ऐप अनलॉक करें' : 'Unlock AI Study Guardian'}
+              </h2>
+              <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
+                {isHindi
+                  ? 'जारी रखने के लिए फिंगरप्रिंट या Study PIN सत्यापित करें।'
+                  : 'Verify your device fingerprint or enter your Study PIN to continue.'}
+              </p>
+            </div>
+
+            {hasEnrolledWebBiometric() && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const res = await verifyWebBiometric();
+                  if (res.ok) {
+                    setIsAppUnlocked(true);
+                    setUnlockFeedback(null);
+                  } else {
+                    setUnlockFeedback(res.message);
+                  }
+                }}
+                className="min-h-[46px] w-full rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm inline-flex items-center justify-center gap-2"
+              >
+                <Fingerprint className="w-4 h-4" />
+                <span>{isHindi ? 'फिंगरप्रिंट से अनलॉक करें' : 'Unlock with Fingerprint'}</span>
+              </button>
+            )}
+
+            {hasFallbackStudyPin() && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (verifyFallbackStudyPin(unlockPin)) {
+                    setIsAppUnlocked(true);
+                    setUnlockPin('');
+                    setUnlockFeedback(null);
+                  } else {
+                    setUnlockFeedback(isHindi ? 'गलत PIN। कृपया फिर से प्रयास करें।' : 'Incorrect Study PIN. Please try again.');
+                  }
+                }}
+                className="space-y-2.5"
+              >
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={unlockPin}
+                  onChange={(e) => setUnlockPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder={isHindi ? 'Study PIN दर्ज करें' : 'Enter Study PIN'}
+                  className="w-full min-h-[44px] px-4 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#06102B] text-center text-sm font-mono tracking-widest"
+                />
+                <button
+                  type="submit"
+                  className="min-h-[42px] w-full rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs"
+                >
+                  {isHindi ? 'PIN से अनलॉक करें' : 'Unlock with PIN'}
+                </button>
+              </form>
+            )}
+
+            {unlockFeedback && <p className="text-xs font-medium text-amber-500">{unlockFeedback}</p>}
+          </div>
         </div>
       )}
     </div>

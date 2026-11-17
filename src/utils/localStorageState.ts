@@ -391,6 +391,10 @@ export function sanitizePersistedState(rawInput: unknown): PersistedAppState {
       typeof parsed.studyMusicAutoWithFocus === 'boolean'
         ? parsed.studyMusicAutoWithFocus
         : INITIAL_APP_STATE.studyMusicAutoWithFocus,
+    biometricLockEnabled:
+      typeof parsed.biometricLockEnabled === 'boolean'
+        ? parsed.biometricLockEnabled
+        : INITIAL_APP_STATE.biometricLockEnabled,
   };
 }
 

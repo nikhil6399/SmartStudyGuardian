@@ -6,12 +6,20 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -27,13 +35,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.jee.studyguardian.data.UserPreferencesState
+import com.jee.studyguardian.database.MockTestResultEntity
+import com.jee.studyguardian.firebase.FirebaseAuthUiState
 import com.jee.studyguardian.models.ExamTrack
 import com.jee.studyguardian.models.LanguageMode
 import com.jee.studyguardian.models.StudyLevel
 import com.jee.studyguardian.models.Subject
 import com.jee.studyguardian.models.ThemeMode
+import com.jee.studyguardian.security.BiometricAuthHelper
 import com.jee.studyguardian.ui.components.GuardianCard
 import com.jee.studyguardian.utils.ClipboardHelper
 import kotlinx.coroutines.launch
@@ -42,6 +56,16 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     prefs: UserPreferencesState,
+    authState: FirebaseAuthUiState = FirebaseAuthUiState(),
+    testHistory: List<MockTestResultEntity> = emptyList(),
+    onSignInEmail: (String, String) -> Unit = { _, _ -> },
+    onRegisterEmail: (String, String, String) -> Unit = { _, _, _ -> },
+    onSendPasswordReset: (String) -> Unit = {},
+    onSignOut: () -> Unit = {},
+    onSyncNow: () -> Unit = {},
+    onSetBiometricLock: (Boolean) -> Unit = {},
+    onTestBiometricLock: () -> Unit = {},
+    onSetAdPreferences: (Boolean, Boolean) -> Unit = { _, _ -> },
     onSelectClassTrack: (ExamTrack) -> Unit,
     onSetLanguage: (LanguageMode) -> Unit,
     onSetTheme: (ThemeMode) -> Unit,
@@ -55,6 +79,13 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val isHindi = prefs.language == LanguageMode.HINDI
+    val biometricSupported = remember(context) { BiometricAuthHelper.canAuthenticate(context) }
+
+    var isRegisterMode by remember { mutableStateOf(false) }
+    var displayNameInput by remember { mutableStateOf("") }
+    var emailInput by remember { mutableStateOf("") }
+    var passwordInput by remember { mutableStateOf("") }
+    var authInlineError by remember { mutableStateOf<String?>(null) }
 
     var restoreJsonInput by remember { mutableStateOf("") }
     var showRestoreDialog by remember { mutableStateOf(false) }
@@ -138,7 +169,225 @@ fun SettingsScreen(
             }
         }
 
-        // 5. AI Tutor Preferences
+        // 5. Firebase Cloud Account & Sync
+        item {
+            GuardianCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (isHindi) "Firebase अकाउंट और क्लाउड सिंक" else "Firebase Account & Cloud Sync",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    if (authState.isSignedIn) {
+                        Text(
+                            "${authState.displayName ?: "Student"} (${authState.email ?: authState.uid.orEmpty()})",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            "Connected to smartstudyguadian · Saved Tests: ${testHistory.size}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (testHistory.isNotEmpty()) {
+                            Text(
+                                if (isHindi) "प्रोफ़ाइल में सहेजे गए हाल के टेस्ट" else "Recent Saved Tests in Profile",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            testHistory.take(5).forEach { test ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            test.title,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            "${test.subjectName} · ${test.track}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Text(
+                                        "${test.score}/${test.maxScore} (${test.accuracyPercent.toInt()}%)",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = onSyncNow,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.CloudUpload, contentDescription = null)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(if (isHindi) "सिंक करें" else "Sync Now")
+                            }
+                            OutlinedButton(
+                                onClick = onSignOut,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(if (isHindi) "साइन आउट" else "Sign Out")
+                            }
+                        }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = !isRegisterMode,
+                                onClick = { isRegisterMode = false; authInlineError = null },
+                                label = { Text("Sign In") }
+                            )
+                            FilterChip(
+                                selected = isRegisterMode,
+                                onClick = { isRegisterMode = true; authInlineError = null },
+                                label = { Text("Create Account") }
+                            )
+                        }
+                        if (isRegisterMode) {
+                            OutlinedTextField(
+                                value = displayNameInput,
+                                onValueChange = { displayNameInput = it },
+                                label = { Text("Student Name") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        OutlinedTextField(
+                            value = emailInput,
+                            onValueChange = { emailInput = it },
+                            label = { Text("Email") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = passwordInput,
+                            onValueChange = { passwordInput = it },
+                            label = { Text("Password (6+ chars)") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        authInlineError?.let {
+                            Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                        }
+                        Button(
+                            onClick = {
+                                val email = emailInput.trim()
+                                if (email.isBlank() || !email.contains("@")) {
+                                    authInlineError = "Enter a valid email address."
+                                } else if (passwordInput.length < 6) {
+                                    authInlineError = "Password must be at least 6 characters."
+                                } else {
+                                    authInlineError = null
+                                    if (isRegisterMode) {
+                                        onRegisterEmail(displayNameInput.trim(), email, passwordInput)
+                                    } else {
+                                        onSignInEmail(email, passwordInput)
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (isRegisterMode) "Create Firebase Account" else "Sign In with Firebase")
+                        }
+                        if (!isRegisterMode) {
+                            TextButton(
+                                onClick = {
+                                    val email = emailInput.trim()
+                                    if (email.isBlank() || !email.contains("@")) {
+                                        authInlineError = "Enter your email above to send a reset link."
+                                    } else {
+                                        authInlineError = null
+                                        onSendPasswordReset(email)
+                                    }
+                                },
+                                modifier = Modifier.align(Alignment.CenterHorizontally)
+                            ) {
+                                Text("Forgot Password?")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 6. Fingerprint & App Lock
+        item {
+            GuardianCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (isHindi) "फिंगरप्रिंट और ऐप लॉक" else "Fingerprint & App Lock",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(if (isHindi) "फिंगरप्रिंट / स्क्रीन लॉक" else "Fingerprint / Screen Lock")
+                            Text(
+                                if (biometricSupported) "Protect study progress on launch"
+                                else "Set a device PIN or fingerprint in Android Settings",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = prefs.biometricLockEnabled,
+                            onCheckedChange = onSetBiometricLock
+                        )
+                    }
+                    FilledTonalButton(
+                        onClick = onTestBiometricLock,
+                        enabled = biometricSupported,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Fingerprint, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (isHindi) "फिंगरप्रिंट टेस्ट करें" else "Test Fingerprint Unlock")
+                    }
+                }
+            }
+        }
+
+        // 7. Ad Preferences (AdMob + Unity Ads)
+        item {
+            GuardianCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (isHindi) "विज्ञापन प्राथमिकताएं" else "Ad & Privacy Controls",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("Personalized Study Ads")
+                        Switch(
+                            checked = prefs.personalizedAdsEnabled,
+                            onCheckedChange = { onSetAdPreferences(it, prefs.ageAppropriateAdsOnly) }
+                        )
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("Student-Safe Ads Only")
+                        Switch(
+                            checked = prefs.ageAppropriateAdsOnly,
+                            onCheckedChange = { onSetAdPreferences(prefs.personalizedAdsEnabled, it) }
+                        )
+                    }
+                }
+            }
+        }
+
+        // 8. AI Tutor Preferences
         item {
             GuardianCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -269,7 +518,7 @@ fun SettingsScreen(
             onDismissRequest = { showPrivacyDialog = false },
             title = { Text("Privacy Policy") },
             text = {
-                Text("AI Study Guardian keeps your notes, chapter progress, timetable, and practice scores stored privately on your device. No account or login is required. App Blocker permissions are strictly used to pause distracting apps you select during Focus Mode and never read passwords, chats, or screenshots.")
+                Text("AI Study Guardian saves your chapter progress, streaks, and completed mock test records directly to your signed-in Firebase student profile while caching notes on your device. App Blocker permissions are strictly used to pause distracting apps you select during Focus Mode and never read passwords, chats, or screenshots.")
             },
             confirmButton = { Button(onClick = { showPrivacyDialog = false }) { Text("Close") } }
         )

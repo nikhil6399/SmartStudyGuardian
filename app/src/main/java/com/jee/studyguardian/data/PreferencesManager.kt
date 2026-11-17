@@ -39,6 +39,8 @@ data class UserPreferencesState(
     val dailyGoalMinutes: Int = 360,
     val studyStreakDays: Int = 1,
     val lastStudyDateIso: String = "",
+    val biometricLockEnabled: Boolean = false,
+    val bonusXpPoints: Int = 0,
     // App Blocker & Focus state
     val appBlockerEnabled: Boolean = false,
     val focusEndEpochMs: Long = 0L,
@@ -77,6 +79,8 @@ class PreferencesManager(private val context: Context) {
         val DAILY_GOAL_MINUTES = intPreferencesKey("daily_goal_minutes")
         val STUDY_STREAK_DAYS = intPreferencesKey("study_streak_days")
         val LAST_STUDY_DATE = stringPreferencesKey("last_study_date")
+        val BIOMETRIC_LOCK_ENABLED = booleanPreferencesKey("biometric_lock_enabled")
+        val BONUS_XP_POINTS = intPreferencesKey("bonus_xp_points")
 
         val APP_BLOCKER_ENABLED = booleanPreferencesKey("app_blocker_enabled")
         val FOCUS_END_EPOCH = longPreferencesKey("focus_end_epoch")
@@ -118,6 +122,8 @@ class PreferencesManager(private val context: Context) {
             dailyGoalMinutes = p[Keys.DAILY_GOAL_MINUTES] ?: 360,
             studyStreakDays = p[Keys.STUDY_STREAK_DAYS] ?: 1,
             lastStudyDateIso = p[Keys.LAST_STUDY_DATE] ?: "",
+            biometricLockEnabled = p[Keys.BIOMETRIC_LOCK_ENABLED] ?: false,
+            bonusXpPoints = p[Keys.BONUS_XP_POINTS] ?: 0,
             appBlockerEnabled = p[Keys.APP_BLOCKER_ENABLED] ?: false,
             focusEndEpochMs = p[Keys.FOCUS_END_EPOCH] ?: 0L,
             focusPausedRemainingMs = p[Keys.FOCUS_PAUSED_REMAINING] ?: 0L,
@@ -165,6 +171,13 @@ class PreferencesManager(private val context: Context) {
     suspend fun updateStreak(streakDays: Int, dateIso: String) = edit {
         it[Keys.STUDY_STREAK_DAYS] = streakDays
         it[Keys.LAST_STUDY_DATE] = dateIso
+    }
+    suspend fun setBiometricLockEnabled(enabled: Boolean) = edit {
+        it[Keys.BIOMETRIC_LOCK_ENABLED] = enabled
+    }
+    suspend fun addBonusXpPoints(points: Int) = edit {
+        val current = it[Keys.BONUS_XP_POINTS] ?: 0
+        it[Keys.BONUS_XP_POINTS] = (current + points).coerceAtLeast(0)
     }
 
     suspend fun setBlockerFocusState(

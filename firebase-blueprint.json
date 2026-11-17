@@ -1,0 +1,239 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated student profile and security preferences for AI Study Guardian.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Firebase Auth UID of the student."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Student display name."
+        },
+        "selectedExamTrack": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40,
+          "description": "Active class board or exam track."
+        },
+        "biometricEnabled": {
+          "type": "boolean",
+          "description": "Whether fingerprint or biometric app lock is enabled."
+        },
+        "studyStreakDays": {
+          "type": "number",
+          "description": "Current consecutive study streak in days."
+        },
+        "xpPoints": {
+          "type": "number",
+          "description": "Earned study and daily challenge XP points."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was last updated."
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "selectedExamTrack",
+        "biometricEnabled",
+        "studyStreakDays",
+        "xpPoints",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "StudyStateSync": {
+      "title": "StudyStateSync",
+      "description": "Cloud-synced student study progress, focus totals, and mock test counts.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Firebase Auth UID owning this study sync snapshot."
+        },
+        "selectedExamTrack": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40,
+          "description": "Synced active exam track."
+        },
+        "studyStreakDays": {
+          "type": "number",
+          "description": "Synced consecutive study streak."
+        },
+        "xpPoints": {
+          "type": "number",
+          "description": "Synced XP points."
+        },
+        "dailyGoalMinutes": {
+          "type": "number",
+          "description": "Daily focus goal in minutes."
+        },
+        "totalFocusMinutes": {
+          "type": "number",
+          "description": "Cumulative focus minutes logged."
+        },
+        "totalMockTests": {
+          "type": "number",
+          "description": "Number of completed mock tests."
+        },
+        "completedChapterIds": {
+          "type": "array",
+          "description": "Bounded list of completed chapter IDs (max 200)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of initial cloud sync."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest cloud sync."
+        }
+      },
+      "required": [
+        "ownerId",
+        "selectedExamTrack",
+        "studyStreakDays",
+        "xpPoints",
+        "dailyGoalMinutes",
+        "totalFocusMinutes",
+        "totalMockTests",
+        "completedChapterIds",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MockTestRecord": {
+      "title": "MockTestRecord",
+      "description": "Individual mock test attempt saved inside the student's Firebase profile.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Firebase Auth UID owning this mock test record."
+        },
+        "testId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Unique identifier for this mock test attempt."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "description": "Mock test title or chapter name."
+        },
+        "track": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40,
+          "description": "Exam track or board for the test."
+        },
+        "subjectLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Subject or syllabus label."
+        },
+        "totalQuestions": {
+          "type": "number",
+          "description": "Total number of questions in the test."
+        },
+        "attempted": {
+          "type": "number",
+          "description": "Number of questions attempted."
+        },
+        "correct": {
+          "type": "number",
+          "description": "Number of correct answers."
+        },
+        "incorrect": {
+          "type": "number",
+          "description": "Number of incorrect answers."
+        },
+        "score": {
+          "type": "number",
+          "description": "Final score obtained."
+        },
+        "maxScore": {
+          "type": "number",
+          "description": "Maximum possible score."
+        },
+        "accuracyPercent": {
+          "type": "number",
+          "description": "Accuracy percentage (0 to 100)."
+        },
+        "durationSeconds": {
+          "type": "number",
+          "description": "Time spent on the test in seconds."
+        },
+        "takenAtEpochMs": {
+          "type": "number",
+          "description": "Unix epoch milliseconds when test was submitted."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when test result was saved."
+        }
+      },
+      "required": [
+        "ownerId",
+        "testId",
+        "title",
+        "track",
+        "subjectLabel",
+        "totalQuestions",
+        "attempted",
+        "correct",
+        "incorrect",
+        "score",
+        "maxScore",
+        "accuracyPercent",
+        "durationSeconds",
+        "takenAtEpochMs",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-scoped student profile and biometric preference."
+    },
+    "/users/{userId}/studyState/{docId}": {
+      "schema": { "$ref": "#/entities/StudyStateSync" },
+      "description": "Owner-scoped study progress and analytics summary synced across sessions."
+    },
+    "/users/{userId}/mockTests/{testId}": {
+      "schema": { "$ref": "#/entities/MockTestRecord" },
+      "description": "Owner-scoped mock test attempts persisted to the student's profile."
+    }
+  }
+}

@@ -1,21 +1,34 @@
 package com.jee.studyguardian.ui
 
+import android.app.Activity
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -24,21 +37,29 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.fragment.app.FragmentActivity
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.jee.studyguardian.ads.AdManager
 import com.jee.studyguardian.models.MockTestConfig
 import com.jee.studyguardian.models.ThemeMode
 import com.jee.studyguardian.navigation.BottomTab
 import com.jee.studyguardian.navigation.SubRoutes
+import com.jee.studyguardian.security.BiometricAuthHelper
 import com.jee.studyguardian.ui.components.ClassSelectionDialog
 import com.jee.studyguardian.ui.screens.AiTutorScreen
 import com.jee.studyguardian.ui.screens.AnalyticsScreen
+import com.jee.studyguardian.ui.screens.AuthGateScreen
 import com.jee.studyguardian.ui.screens.BlockerAndFocusScreen
 import com.jee.studyguardian.ui.screens.HomeDashboardScreen
 import com.jee.studyguardian.ui.screens.JeePracticeScreen
@@ -49,7 +70,7 @@ import com.jee.studyguardian.ui.theme.JeeStudyGuardianTheme
 import com.jee.studyguardian.utils.AppStrings
 import com.jee.studyguardian.viewmodel.MainViewModel
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
 
@@ -99,13 +120,91 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
     val pomodoroState by viewModel.pomodoroState.collectAsState()
     val chapterStrengths by viewModel.chapterStrengths.collectAsState()
     val bannerMessage by viewModel.statusBannerMessage.collectAsState()
+    val authState by viewModel.firebaseAuthState.collectAsState()
+    val authLoading by viewModel.authActionLoading.collectAsState()
+    val authError by viewModel.authErrorMessage.collectAsState()
     var showClassDialog by remember { mutableStateOf(false) }
+
+    var hasPassedSessionUnlock by rememberSaveable { mutableStateOf(false) }
+    var autoPromptedBiometric by remember { mutableStateOf(false) }
+    var biometricErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        (context as? Activity)?.let { act ->
+            AdManager.gatherConsentAndInitialize(act, prefs.ageAppropriateAdsOnly)
+        }
+    }
+
+    LaunchedEffect(prefs.ageAppropriateAdsOnly) {
+        AdManager.configureAgeAppropriateRequestConfig(prefs.ageAppropriateAdsOnly)
+    }
+
+    val isLocked = authState.isSignedIn && prefs.biometricLockEnabled && !hasPassedSessionUnlock
+    LaunchedEffect(isLocked) {
+        if (isLocked && !autoPromptedBiometric) {
+            autoPromptedBiometric = true
+            (context as? FragmentActivity)?.let { fragActivity ->
+                BiometricAuthHelper.authenticate(
+                    activity = fragActivity,
+                    onSuccess = {
+                        hasPassedSessionUnlock = true
+                        biometricErrorMessage = null
+                    },
+                    onError = { err -> biometricErrorMessage = err }
+                )
+            }
+        }
+    }
 
     LaunchedEffect(bannerMessage) {
         bannerMessage?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.clearBanner()
         }
+    }
+
+    if (!authState.isAuthInitialized) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator()
+                    Text(
+                        text = "Loading student profile...",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    if (!authState.isSignedIn) {
+        Scaffold(
+            snackbarHost = { SnackbarHost(snackbarHostState) }
+        ) { innerPadding ->
+            Box(modifier = Modifier.padding(innerPadding)) {
+                AuthGateScreen(
+                    language = prefs.language,
+                    isLoading = authLoading,
+                    authError = authError,
+                    onClearError = viewModel::clearAuthError,
+                    onChangeLanguage = viewModel::setLanguage,
+                    onSignInEmail = viewModel::signInWithEmail,
+                    onRegisterEmail = viewModel::registerWithEmail,
+                    onSendPasswordReset = viewModel::sendPasswordReset
+                )
+            }
+        }
+        return
     }
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -198,7 +297,18 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
                     onOpenPlanner = { navController.navigate(SubRoutes.STUDY_PLANNER) },
                     onOpenAnalytics = { navController.navigate(SubRoutes.ANALYTICS) },
                     onOpenClassSelector = { showClassDialog = true },
-                    onToggleGoal = viewModel::toggleGoal
+                    onToggleGoal = viewModel::toggleGoal,
+                    onWatchRewardedAd = {
+                        (context as? Activity)?.let { act ->
+                            AdManager.showRewardedAd(
+                                activity = act,
+                                onRewardEarned = { viewModel.awardBonusStudyXp(25) },
+                                onUnavailable = {
+                                    viewModel.showNotice("Rewarded ad is still loading. Try again shortly.")
+                                }
+                            )
+                        }
+                    }
                 )
             }
 
@@ -260,6 +370,27 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
             composable(BottomTab.Settings.route) {
                 SettingsScreen(
                     prefs = prefs,
+                    authState = authState,
+                    testHistory = testHistory,
+                    onSignInEmail = viewModel::signInWithEmail,
+                    onRegisterEmail = viewModel::registerWithEmail,
+                    onSendPasswordReset = viewModel::sendPasswordReset,
+                    onSignOut = viewModel::signOutFirebase,
+                    onSyncNow = { viewModel.syncProgressToCloud(silent = false) },
+                    onSetBiometricLock = { enabled ->
+                        if (enabled) hasPassedSessionUnlock = true
+                        viewModel.setBiometricLockEnabled(enabled)
+                    },
+                    onTestBiometricLock = {
+                        (context as? FragmentActivity)?.let { fragActivity ->
+                            BiometricAuthHelper.authenticate(
+                                activity = fragActivity,
+                                onSuccess = { viewModel.showNotice("Fingerprint verification succeeded!") },
+                                onError = { err -> viewModel.showNotice(err) }
+                            )
+                        }
+                    },
+                    onSetAdPreferences = viewModel::setAdPreferences,
                     onSelectClassTrack = viewModel::selectClassTrack,
                     onSetLanguage = viewModel::setLanguage,
                     onSetTheme = viewModel::setThemeMode,
@@ -280,8 +411,14 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
                     onJumpQuestion = viewModel::jumpToMockQuestion,
                     onSubmit = viewModel::submitMockTest,
                     onClose = {
+                        val wasSubmitted = mockTestState.isSubmitted
                         viewModel.closeMockTest()
                         navController.popBackStack()
+                        if (wasSubmitted) {
+                            (context as? Activity)?.let { act ->
+                                AdManager.showInterstitialIfReady(act, isTestOrFocusActive = false)
+                            }
+                        }
                     }
                 )
             }
@@ -331,5 +468,69 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
             onChangeLanguage = viewModel::setLanguage,
             onDismiss = { showClassDialog = false }
         )
+    }
+
+    if (isLocked) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Fingerprint,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "AI Study Guardian Locked",
+                        style = MaterialTheme.typography.headlineSmall,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = "Verify your fingerprint or screen lock to access your study workspace.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                    biometricErrorMessage?.let { err ->
+                        Text(
+                            text = err,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Button(
+                        onClick = {
+                            (context as? FragmentActivity)?.let { fragActivity ->
+                                BiometricAuthHelper.authenticate(
+                                    activity = fragActivity,
+                                    onSuccess = {
+                                        hasPassedSessionUnlock = true
+                                        biometricErrorMessage = null
+                                    },
+                                    onError = { err -> biometricErrorMessage = err }
+                                )
+                            }
+                        }
+                    ) {
+                        Icon(Icons.Default.Fingerprint, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Unlock with Fingerprint")
+                    }
+                }
+            }
+        }
     }
 }

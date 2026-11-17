@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.School
@@ -45,6 +46,7 @@ import com.jee.studyguardian.database.StudyAlarmEntity
 import com.jee.studyguardian.database.StudyGoalEntity
 import com.jee.studyguardian.models.Subject
 import com.jee.studyguardian.models.SubjectAnalytics
+import com.jee.studyguardian.ui.components.AdaptiveStudyBannerAd
 import com.jee.studyguardian.ui.components.GuardianCard
 import com.jee.studyguardian.ui.components.SubjectProgressRow
 import com.jee.studyguardian.utils.AppStrings
@@ -64,7 +66,8 @@ fun HomeDashboardScreen(
     onOpenPlanner: () -> Unit,
     onOpenAnalytics: () -> Unit,
     onOpenClassSelector: () -> Unit,
-    onToggleGoal: (StudyGoalEntity) -> Unit
+    onToggleGoal: (StudyGoalEntity) -> Unit,
+    onWatchRewardedAd: () -> Unit = {}
 ) {
     val todayIso = TimeFormatters.todayIso()
     val todayStat = dailyStats.firstOrNull { it.dateIso == todayIso }
@@ -114,7 +117,8 @@ fun HomeDashboardScreen(
                                 color = MaterialTheme.colorScheme.secondary
                             )
                             Text(
-                                "Streak: ${prefs.studyStreakDays} day(s) · Target: ${TimeFormatters.formatHoursMinutes(prefs.dailyGoalMinutes)}",
+                                "Streak: ${prefs.studyStreakDays} day(s) · Target: ${TimeFormatters.formatHoursMinutes(prefs.dailyGoalMinutes)}" +
+                                    if (prefs.bonusXpPoints > 0) " · Bonus XP: ${prefs.bonusXpPoints}" else "",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -314,6 +318,41 @@ fun HomeDashboardScreen(
                     }
                 }
             }
+        }
+
+        // Rewarded Video Boost (+25 Bonus XP)
+        item {
+            GuardianCard {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            if (isHindi) "अतिरिक्त +25 Study XP प्राप्त करें" else "Earn +25 Bonus Study XP",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            if (isHindi) "रिवॉर्डेड वीडियो देखकर बोनस XP अनलॉक करें"
+                            else "Watch a short rewarded ad to unlock bonus XP synced to Firebase.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    FilledTonalButton(onClick = onWatchRewardedAd) {
+                        Icon(Icons.Default.PlayCircle, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("+25 XP")
+                    }
+                }
+            }
+        }
+
+        // Adaptive Banner Ad (AdMob with Unity Ads Fallback)
+        item {
+            AdaptiveStudyBannerAd(personalizedAdsEnabled = prefs.personalizedAdsEnabled)
         }
     }
 }

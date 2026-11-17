@@ -5,6 +5,7 @@
     <!-- Network access for AI Tutor backend -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <!-- Explicit user-consented notification & study alarm permissions -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -49,7 +50,7 @@
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="${admobAppId}" />
 
-        <!-- Direct entry to Home Dashboard (no login / no signup) -->
+        <!-- Requires Firebase Sign-In before dashboard entry -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"

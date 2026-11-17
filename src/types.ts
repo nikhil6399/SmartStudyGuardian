@@ -242,4 +242,5 @@ export interface PersistedAppState {
   studyMusicTrackId: string;
   studyMusicVolume: number;
   studyMusicAutoWithFocus: boolean;
+  biometricLockEnabled: boolean;
 }

@@ -1,0 +1,222 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny everything unless explicitly matched below
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+        'uid', 'displayName', 'selectedExamTrack', 'biometricEnabled',
+        'studyStreakDays', 'xpPoints', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'uid', 'displayName', 'selectedExamTrack', 'biometricEnabled',
+        'studyStreakDays', 'xpPoints', 'createdAt', 'updatedAt'
+      ])
+      && data.uid is string
+      && data.uid == request.auth.uid
+      && data.uid == userId
+      && isValidId(data.uid)
+      && data.displayName is string
+      && data.displayName.size() >= 1
+      && data.displayName.size() <= 100
+      && data.selectedExamTrack is string
+      && data.selectedExamTrack.size() >= 2
+      && data.selectedExamTrack.size() <= 40
+      && data.biometricEnabled is bool
+      && data.studyStreakDays is number
+      && data.studyStreakDays >= 0
+      && data.studyStreakDays <= 10000
+      && data.xpPoints is number
+      && data.xpPoints >= 0
+      && data.xpPoints <= 10000000
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidChapterList(chapters) {
+      return chapters is list
+        && chapters.size() <= 200
+        && (chapters.size() == 0 || (chapters[0] is string && chapters[0].size() >= 1 && chapters[0].size() <= 80));
+    }
+
+    function isValidStudyStateSync(data, userId) {
+      return data.keys().hasAll([
+        'ownerId', 'selectedExamTrack', 'studyStreakDays', 'xpPoints',
+        'dailyGoalMinutes', 'totalFocusMinutes', 'totalMockTests',
+        'completedChapterIds', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'ownerId', 'selectedExamTrack', 'studyStreakDays', 'xpPoints',
+        'dailyGoalMinutes', 'totalFocusMinutes', 'totalMockTests',
+        'completedChapterIds', 'createdAt', 'updatedAt'
+      ])
+      && data.ownerId is string
+      && data.ownerId == request.auth.uid
+      && data.ownerId == userId
+      && isValidId(data.ownerId)
+      && data.selectedExamTrack is string
+      && data.selectedExamTrack.size() >= 2
+      && data.selectedExamTrack.size() <= 40
+      && data.studyStreakDays is number
+      && data.studyStreakDays >= 0
+      && data.studyStreakDays <= 10000
+      && data.xpPoints is number
+      && data.xpPoints >= 0
+      && data.xpPoints <= 10000000
+      && data.dailyGoalMinutes is number
+      && data.dailyGoalMinutes >= 10
+      && data.dailyGoalMinutes <= 1440
+      && data.totalFocusMinutes is number
+      && data.totalFocusMinutes >= 0
+      && data.totalFocusMinutes <= 10000000
+      && data.totalMockTests is number
+      && data.totalMockTests >= 0
+      && data.totalMockTests <= 1000000
+      && isValidChapterList(data.completedChapterIds)
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidMockTestRecord(data, userId, testId) {
+      return data.keys().hasAll([
+        'ownerId', 'testId', 'title', 'track', 'subjectLabel',
+        'totalQuestions', 'attempted', 'correct', 'incorrect',
+        'score', 'maxScore', 'accuracyPercent', 'durationSeconds',
+        'takenAtEpochMs', 'createdAt'
+      ])
+      && data.keys().hasOnly([
+        'ownerId', 'testId', 'title', 'track', 'subjectLabel',
+        'totalQuestions', 'attempted', 'correct', 'incorrect',
+        'score', 'maxScore', 'accuracyPercent', 'durationSeconds',
+        'takenAtEpochMs', 'createdAt'
+      ])
+      && data.ownerId is string
+      && data.ownerId == request.auth.uid
+      && data.ownerId == userId
+      && isValidId(data.ownerId)
+      && data.testId is string
+      && data.testId == testId
+      && isValidId(data.testId)
+      && data.title is string
+      && data.title.size() >= 1
+      && data.title.size() <= 160
+      && data.track is string
+      && data.track.size() >= 2
+      && data.track.size() <= 40
+      && data.subjectLabel is string
+      && data.subjectLabel.size() >= 1
+      && data.subjectLabel.size() <= 60
+      && data.totalQuestions is number
+      && data.totalQuestions >= 1
+      && data.totalQuestions <= 500
+      && data.attempted is number
+      && data.attempted >= 0
+      && data.attempted <= 500
+      && data.correct is number
+      && data.correct >= 0
+      && data.correct <= 500
+      && data.incorrect is number
+      && data.incorrect >= 0
+      && data.incorrect <= 500
+      && data.score is number
+      && data.score >= -500
+      && data.score <= 2000
+      && data.maxScore is number
+      && data.maxScore >= 1
+      && data.maxScore <= 2000
+      && data.accuracyPercent is number
+      && data.accuracyPercent >= 0
+      && data.accuracyPercent <= 100
+      && data.durationSeconds is number
+      && data.durationSeconds >= 0
+      && data.durationSeconds <= 36000
+      && data.takenAtEpochMs is number
+      && data.takenAtEpochMs >= 0
+      && data.createdAt is timestamp;
+    }
+
+    // Connection health check path (read-only single doc get, never writable)
+    match /test/connection {
+      allow get: if true;
+      allow list, write: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if isOwner(userId) && resource.data.uid == request.auth.uid;
+      allow create: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId);
+      allow update: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'selectedExamTrack', 'biometricEnabled',
+          'studyStreakDays', 'xpPoints', 'updatedAt'
+        ]);
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      match /studyState/{docId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(docId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(docId)
+          && isValidStudyStateSync(incoming(), userId)
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+        allow update: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(docId)
+          && isValidStudyStateSync(incoming(), userId)
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'selectedExamTrack', 'studyStreakDays', 'xpPoints',
+            'dailyGoalMinutes', 'totalFocusMinutes', 'totalMockTests',
+            'completedChapterIds', 'updatedAt'
+          ]);
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(docId);
+      }
+
+      match /mockTests/{testId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(testId);
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(testId)
+          && isValidMockTestRecord(incoming(), userId, testId)
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(testId);
+      }
+    }
+  }
+}

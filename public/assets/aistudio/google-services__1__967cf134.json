@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "237357970564",
+    "project_id": "smartstudyguadian",
+    "storage_bucket": "smartstudyguadian.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:237357970564:android:df09f5f11798d5770bfed1",
+        "android_client_info": {
+          "package_name": "com.studyguardian.ai"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8qXBVA5jrv5BkKTaSuGoaotvgjwLPnJI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

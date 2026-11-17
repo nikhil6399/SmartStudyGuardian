@@ -42,6 +42,31 @@ class StudyRepository(private val db: AppDatabase) {
         db.chapterProgressDao().upsert(updated)
     }
 
+    suspend fun markChaptersCompleted(chapterIds: List<String>) {
+        if (chapterIds.isEmpty()) return
+        val existingMap = db.chapterProgressDao().getAllOnce().associateBy { it.chapterId }
+        val toUpsert = mutableListOf<ChapterProgressEntity>()
+        val now = System.currentTimeMillis()
+        chapterIds.distinct().forEach { chapterId ->
+            val current = existingMap[chapterId]
+            if (current == null) {
+                toUpsert.add(
+                    ChapterProgressEntity(
+                        chapterId = chapterId,
+                        isCompleted = true,
+                        revisionCount = 1,
+                        lastRevisedEpochMs = now
+                    )
+                )
+            } else if (!current.isCompleted) {
+                toUpsert.add(current.copy(isCompleted = true, lastRevisedEpochMs = now))
+            }
+        }
+        if (toUpsert.isNotEmpty()) {
+            db.chapterProgressDao().upsertAll(toUpsert)
+        }
+    }
+
     suspend fun recordChapterRevision(chapterId: String) {
         val existing = db.chapterProgressDao().getById(chapterId)
         val now = System.currentTimeMillis()
@@ -114,6 +139,18 @@ class MockTestRepository(private val db: AppDatabase) {
         db.dailyStudyStatDao().upsert(
             existing.copy(questionsSolved = existing.questionsSolved + result.attempted)
         )
+    }
+
+    suspend fun mergeCloudResults(cloudResults: List<MockTestResultEntity>) {
+        if (cloudResults.isEmpty()) return
+        val existing = db.mockTestResultDao().getAllOnce()
+        val existingKeys = existing.map { "${it.title}_${it.timestampEpochMs}_${it.score}" }.toHashSet()
+        val missing = cloudResults.filter { item ->
+            "${item.title}_${item.timestampEpochMs}_${item.score}" !in existingKeys
+        }
+        if (missing.isNotEmpty()) {
+            db.mockTestResultDao().insertAll(missing)
+        }
     }
 }
 
