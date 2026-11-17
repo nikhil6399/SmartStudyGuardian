@@ -12,7 +12,6 @@ import {
   Play,
   RotateCcw,
   Sparkles,
-  Trash2,
   X,
   XCircle,
 } from 'lucide-react';
@@ -25,7 +24,7 @@ import {
   PracticeQuestion,
   Subject,
 } from '../types';
-import { formatMmSs } from '../utils/localStorageState';
+import { formatMmSs, safeParseJsonResponse } from '../utils/localStorageState';
 import { MathText } from './MathRenderer';
 
 interface PracticeAndTestTabProps {
@@ -246,7 +245,7 @@ export function PracticeAndTestTab({
         }),
       });
 
-      const data = await res.json();
+      const data = await safeParseJsonResponse<{ set?: DailyAiQuestionSet }>(res);
       if (!res.ok || !data?.set || !Array.isArray(data.set.questions) || data.set.questions.length === 0) {
         setGenError(
           res.status === 429

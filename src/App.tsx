@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlarmClock, BellRing, BookOpen, GraduationCap, Home, Settings, Shield, Sparkles } from 'lucide-react';
+import { AlarmClock, Bell, BellRing, BookOpen, GraduationCap, Home, Music2, Pause, Play, Settings, Shield, SkipForward, Sparkles, X } from 'lucide-react';
 import { AiTutorTab } from './components/AiTutorTab';
 import { AlarmsView } from './components/AlarmsView';
 import { BlockerAndFocusTab } from './components/BlockerAndFocusTab';
@@ -8,10 +8,43 @@ import { HomeTab } from './components/HomeTab';
 import { AnalyticsView, PlannerView } from './components/PlannerAndAnalyticsViews';
 import { PracticeAndTestTab } from './components/PracticeAndTestTab';
 import { SettingsTab } from './components/SettingsAndSourceTab';
-import { EXAM_TRACK_LABELS, INITIAL_APP_STATE } from './data/jeeCatalog';
-import { ExamTrack, MainTab, PersistedAppState, StudyAlarm, SubView } from './types';
+import { buildDailyChallengesForDate, EXAM_TRACK_LABELS, getLocalDateIso, INITIAL_APP_STATE } from './data/jeeCatalog';
+import { DailyChallengeCategory, ExamTrack, MainTab, PersistedAppState, StudyAlarm, SubView } from './types';
 import { formatTime12h, startAlarmRingLoop, stopAlarmRingLoop } from './utils/alarmAudio';
-import { clearPersistedState, loadPersistedState, sanitizePersistedState, savePersistedState } from './utils/localStorageState';
+import { clearPersistedState, loadPersistedState, sanitizePersistedState, savePersistedState, sendLocalNotificationSafe } from './utils/localStorageState';
+import { BUILTIN_STUDY_TRACKS, studyMusicPlayer, StudyMusicTrack } from './utils/studyMusicPlayer';
+
+interface InAppNotificationItem {
+  id: string;
+  title: string;
+  body: string;
+  actionTab?: MainTab;
+  actionSubView?: SubView;
+}
+
+function parseHhMmToMinutes(hhmm: string): number | null {
+  const parts = hhmm.split(':');
+  if (parts.length !== 2) return null;
+  const h = Number(parts[0]);
+  const m = Number(parts[1]);
+  if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return h * 60 + m;
+}
+
+function withChallengeCompleted(
+  state: PersistedAppState,
+  category: DailyChallengeCategory
+): PersistedAppState {
+  let changed = false;
+  const nextChallenges = (state.dailyChallenges ?? []).map((dc) => {
+    if (dc.category === category && !dc.completed) {
+      changed = true;
+      return { ...dc, completed: true, completedAt: Date.now() };
+    }
+    return dc;
+  });
+  return changed ? { ...state, dailyChallenges: nextChallenges } : state;
+}
 
 class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -76,12 +109,128 @@ function AppContent() {
   const [focusRemainingSeconds, setFocusRemainingSeconds] = useState<number>(0);
   const [showClassModal, setShowClassModal] = useState<boolean>(false);
   const [ringingAlarm, setRingingAlarm] = useState<StudyAlarm | null>(null);
+  const [notifications, setNotifications] = useState<InAppNotificationItem[]>([]);
   const firedAlarmKeysRef = useRef<Set<string>>(new Set());
+  const firedNotificationKeysRef = useRef<Set<string>>(new Set());
 
   // Pomodoro state
   const [pomodoroPhase, setPomodoroPhase] = useState<'STUDY' | 'BREAK'>('STUDY');
   const [pomodoroRemainingSec, setPomodoroRemainingSec] = useState(state.pomodoroStudyMin * 60);
   const [pomodoroRunning, setPomodoroRunning] = useState(false);
+
+  // Persistent Study Music Player state
+  const [blockerSubTab, setBlockerSubTab] = useState<'focus' | 'music' | 'apps' | 'youtube' | 'content_filter'>('focus');
+  const [customMusicTracks, setCustomMusicTracks] = useState<StudyMusicTrack[]>([]);
+  const [musicPlaying, setMusicPlaying] = useState(false);
+  const [musicLoop, setMusicLoop] = useState(true);
+  const [musicCurrentSec, setMusicCurrentSec] = useState(0);
+  const [musicDurationSec, setMusicDurationSec] = useState(0);
+
+  const allMusicTracks = [...BUILTIN_STUDY_TRACKS, ...customMusicTracks];
+  const activeMusicTrack =
+    allMusicTracks.find((t) => t.id === state.studyMusicTrackId) ?? BUILTIN_STUDY_TRACKS[0];
+
+  useEffect(() => {
+    studyMusicPlayer.setVolume(state.studyMusicVolume ?? 0.45);
+  }, [state.studyMusicVolume]);
+
+  useEffect(() => {
+    studyMusicPlayer.setLoop(musicLoop);
+  }, [musicLoop]);
+
+  useEffect(() => {
+    studyMusicPlayer.setCallbacks(
+      (cur, dur) => {
+        setMusicCurrentSec(cur);
+        setMusicDurationSec(dur);
+      },
+      () => {
+        const currentIdx = allMusicTracks.findIndex((t) => t.id === activeMusicTrack.id);
+        const nextTrack = allMusicTracks[(currentIdx + 1) % allMusicTracks.length];
+        if (nextTrack) {
+          setState((s) => ({ ...s, studyMusicTrackId: nextTrack.id }));
+          studyMusicPlayer.playTrack(nextTrack);
+          setMusicPlaying(true);
+        } else {
+          setMusicPlaying(false);
+        }
+      }
+    );
+  });
+
+  useEffect(() => {
+    return () => {
+      studyMusicPlayer.stop();
+    };
+  }, []);
+
+  const handleToggleMusicPlay = () => {
+    if (musicPlaying) {
+      studyMusicPlayer.stop();
+      setMusicPlaying(false);
+    } else {
+      const ok = studyMusicPlayer.playTrack(activeMusicTrack);
+      setMusicPlaying(ok);
+    }
+  };
+
+  const handleSelectMusicTrack = (trackId: string, autoPlay = true) => {
+    const found = allMusicTracks.find((t) => t.id === trackId);
+    if (!found) return;
+    setState((s) => ({ ...s, studyMusicTrackId: found.id }));
+    if (autoPlay || musicPlaying) {
+      const ok = studyMusicPlayer.playTrack(found);
+      setMusicPlaying(ok);
+    }
+  };
+
+  const handleStepMusicTrack = (direction: -1 | 1) => {
+    if (allMusicTracks.length === 0) return;
+    const idx = allMusicTracks.findIndex((t) => t.id === activeMusicTrack.id);
+    const nextIdx = (idx + direction + allMusicTracks.length) % allMusicTracks.length;
+    handleSelectMusicTrack(allMusicTracks[nextIdx].id, true);
+  };
+
+  const handleAddCustomMusicFiles = (files: FileList) => {
+    const added: StudyMusicTrack[] = [];
+    Array.from(files).forEach((file, i) => {
+      if (!file.type.startsWith('audio/') && !/\.(mp3|wav|m4a|ogg|aac|flac)$/i.test(file.name)) {
+        return;
+      }
+      const objectUrl = URL.createObjectURL(file);
+      const cleanName = file.name.replace(/\.[^.]+$/, '');
+      added.push({
+        id: `custom_audio_${Date.now()}_${i}`,
+        titleEn: cleanName,
+        titleHi: cleanName,
+        subtitleEn: 'Custom study track from your device',
+        subtitleHi: 'आपके डिवाइस से जोड़ा गया स्टडी ऑडियो',
+        kind: 'custom',
+        tag: 'Device Audio',
+        objectUrl,
+      });
+    });
+    if (added.length > 0) {
+      setCustomMusicTracks((prev) => [...added, ...prev]);
+      const first = added[0];
+      setState((s) => ({ ...s, studyMusicTrackId: first.id }));
+      const ok = studyMusicPlayer.playTrack(first);
+      setMusicPlaying(ok);
+    }
+  };
+
+  const handleRemoveCustomMusicTrack = (trackId: string) => {
+    const target = customMusicTracks.find((t) => t.id === trackId);
+    if (target?.objectUrl) {
+      URL.revokeObjectURL(target.objectUrl);
+    }
+    setCustomMusicTracks((prev) => prev.filter((t) => t.id !== trackId));
+    if (activeMusicTrack.id === trackId) {
+      studyMusicPlayer.stop();
+      setMusicPlaying(false);
+      setState((s) => ({ ...s, studyMusicTrackId: BUILTIN_STUDY_TRACKS[0].id }));
+    }
+  };
 
   // Sync dark/light class on <html>
   useEffect(() => {
@@ -188,14 +337,170 @@ function AppContent() {
     };
   }, []);
 
+  const pushNotification = (
+    dedupKey: string,
+    title: string,
+    body: string,
+    actionTab?: MainTab,
+    actionSubView?: SubView
+  ) => {
+    if (firedNotificationKeysRef.current.has(dedupKey)) return;
+    firedNotificationKeysRef.current.add(dedupKey);
+    sendLocalNotificationSafe(title, body);
+    const id = `${dedupKey}_${Date.now()}`;
+    setNotifications((prev) => [{ id, title, body, actionTab, actionSubView }, ...prev].slice(0, 3));
+    window.setTimeout(() => {
+      setNotifications((prev) => prev.filter((item) => item.id !== id));
+    }, 9000);
+  };
+
+  // Daily Challenge rollover + Local Study Notification Scheduler
+  useEffect(() => {
+    const checkScheduleAndChallenges = () => {
+      const todayIso = getLocalDateIso();
+      if (state.dailyChallengeDate !== todayIso) {
+        setState((s) => {
+          if (s.dailyChallengeDate === todayIso) return s;
+          const prevCompleted = (s.dailyChallenges ?? []).filter((c) => c.completed).length;
+          const prevTotal = (s.dailyChallenges ?? []).length;
+          const updatedHistory =
+            prevTotal > 0 && !s.dailyChallengeHistory.some((h) => h.dateIso === s.dailyChallengeDate)
+              ? [
+                  {
+                    dateIso: s.dailyChallengeDate,
+                    completedCount: prevCompleted,
+                    totalCount: prevTotal,
+                  },
+                  ...s.dailyChallengeHistory,
+                ].slice(0, 30)
+              : s.dailyChallengeHistory;
+          return {
+            ...s,
+            dailyChallengeDate: todayIso,
+            dailyChallenges: buildDailyChallengesForDate(todayIso, s.selectedClassTrack),
+            dailyChallengeHistory: updatedHistory,
+          };
+        });
+        return;
+      }
+
+      if (!state.notificationsEnabled) return;
+
+      const now = new Date();
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      const jsDay = now.getDay();
+      const isoDay = jsDay === 0 ? 7 : jsDay;
+      const hi = state.language === 'hi';
+
+      // 1. Upcoming Timetable Study Sessions (0-10 mins before start)
+      for (const slot of state.timetable) {
+        if (slot.dayOfWeek !== isoDay) continue;
+        const startMin = parseHhMmToMinutes(slot.startTime);
+        if (startMin === null) continue;
+        const diff = startMin - nowMinutes;
+        if (diff >= 0 && diff <= 10) {
+          pushNotification(
+            `tt_${slot.id}_${todayIso}`,
+            hi ? 'आगामी अध्ययन सत्र रिमाइंडर' : 'Upcoming Study Session',
+            diff === 0
+              ? `${slot.chapterTitle} (${slot.subject}) ${hi ? 'अभी शुरू हो रहा है' : 'is starting now'}`
+              : `${slot.chapterTitle} (${slot.subject}) ${hi ? `${diff} मिनट में शुरू होगा` : `starts in ${diff} min`}`,
+            undefined,
+            'planner'
+          );
+        }
+      }
+
+      // 2. Upcoming Custom Revision Schedules (0-10 mins before start)
+      for (const rev of state.customRevisions) {
+        const revMin = parseHhMmToMinutes(rev.time);
+        if (revMin === null) continue;
+        const diff = revMin - nowMinutes;
+        if (diff >= 0 && diff <= 10) {
+          pushNotification(
+            `rev_${rev.id}_${todayIso}`,
+            hi ? 'पुनरावृत्ति रिमाइंडर' : 'Revision Session Reminder',
+            diff === 0
+              ? `${rev.title} (${rev.subject}) — ${hi ? 'अभी दोहराएं' : 'time to revise now'}`
+              : `${rev.title} (${rev.subject}) ${hi ? `${diff} मिनट में` : `in ${diff} min`}`,
+            'practice'
+          );
+        }
+      }
+    };
+
+    checkScheduleAndChallenges();
+    const intervalId = window.setInterval(checkScheduleAndChallenges, 15000);
+
+    // Gentle Daily AI Challenge reminder shortly after opening app
+    const challengeTimerId = window.setTimeout(() => {
+      if (!state.notificationsEnabled) return;
+      const todayIso = getLocalDateIso();
+      const pending = (state.dailyChallenges ?? []).filter((c) => !c.completed);
+      if (pending.length === 0) return;
+      const hi = state.language === 'hi';
+      pushNotification(
+        `dc_nudge_${todayIso}`,
+        hi ? 'आज के डेली AI चैलेंज तैयार हैं' : 'Daily AI Challenges Waiting',
+        hi
+          ? `${pending.length} डेली AI चैलेंज पूरे करके ${pending.reduce((s, c) => s + c.xpReward, 0)} XP कमाएं।`
+          : `Complete ${pending.length} Daily AI Challenge(s) today to earn +${pending.reduce((s, c) => s + c.xpReward, 0)} XP.`,
+        'home'
+      );
+    }, 3500);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.clearTimeout(challengeTimerId);
+    };
+  }, [
+    state.dailyChallengeDate,
+    state.dailyChallenges,
+    state.notificationsEnabled,
+    state.timetable,
+    state.customRevisions,
+    state.language,
+  ]);
+
+  const handleRequestNotificationPermission = () => {
+    if (typeof Notification === 'undefined' || typeof Notification.requestPermission !== 'function') return;
+    try {
+      Promise.resolve(Notification.requestPermission())
+        .then((perm) => {
+          if (perm === 'granted') {
+            sendLocalNotificationSafe(
+              'AI Study Guardian',
+              state.language === 'hi'
+                ? 'डेली AI चैलेंज और अध्ययन रिमाइंडर चालू हो गए हैं।'
+                : 'Daily AI Challenge & study session reminders are now active.'
+            );
+          }
+        })
+        .catch(() => {});
+    } catch {
+      // Ignore Notification API restrictions
+    }
+  };
+
   const handleSelectClassTrack = (track: ExamTrack) => {
-    setState((s) => ({
-      ...s,
-      hasSelectedClass: true,
-      selectedClassTrack: track,
-      aiDefaultLevel: track,
-      negativeMarkingEnabled: !track.startsWith('CLASS_'),
-    }));
+    setState((s) => {
+      const todayIso = getLocalDateIso();
+      const completedCategories = new Set(
+        (s.dailyChallenges ?? []).filter((c) => c.completed).map((c) => c.category)
+      );
+      const nextChallenges = buildDailyChallengesForDate(todayIso, track).map((c) =>
+        completedCategories.has(c.category) ? { ...c, completed: true, completedAt: Date.now() } : c
+      );
+      return {
+        ...s,
+        hasSelectedClass: true,
+        selectedClassTrack: track,
+        aiDefaultLevel: track,
+        negativeMarkingEnabled: !track.startsWith('CLASS_'),
+        dailyChallengeDate: todayIso,
+        dailyChallenges: nextChallenges,
+      };
+    });
     setShowClassModal(false);
   };
 
@@ -307,6 +612,29 @@ function AppContent() {
 
           <div className="flex items-center gap-2 shrink-0">
             <button
+              onClick={() => {
+                setBlockerSubTab('music');
+                navigateTab('blocker');
+              }}
+              className={`min-h-[38px] px-3 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap ${
+                musicPlaying
+                  ? 'border-cyan-500 bg-cyan-500/15 text-cyan-700 dark:text-cyan-300'
+                  : 'border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-[#0A173B] hover:border-cyan-500/60 text-slate-800 dark:text-slate-100'
+              }`}
+              title={isHindi ? 'स्टडी म्यूज़िक प्लेयर खोलें' : 'Open Study Music Player'}
+            >
+              <Music2 className="w-3.5 h-3.5 text-cyan-500" />
+              <span className="hidden sm:inline">
+                {musicPlaying
+                  ? isHindi
+                    ? 'संगीत चालू'
+                    : 'Music On'
+                  : isHindi
+                  ? 'म्यूज़िक'
+                  : 'Music'}
+              </span>
+            </button>
+            <button
               onClick={() => setShowClassModal(true)}
               className="min-h-[38px] px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-[#0A173B] hover:border-cyan-500/60 text-xs font-semibold text-slate-800 dark:text-slate-100 inline-flex items-center gap-1.5 whitespace-nowrap"
               title={isHindi ? 'कक्षा या परीक्षा बदलें' : 'Switch Class or Exam'}
@@ -315,7 +643,10 @@ function AppContent() {
               <span>{activeTrackLabel}</span>
             </button>
             <button
-              onClick={() => navigateTab('blocker')}
+              onClick={() => {
+                setBlockerSubTab('focus');
+                navigateTab('blocker');
+              }}
               className="min-h-[40px] px-4 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs inline-flex items-center gap-2 whitespace-nowrap shrink-0"
             >
               <Shield className="w-4 h-4" />
@@ -380,10 +711,15 @@ function AppContent() {
                 }))
               }
               onToggleGoal={(id) =>
-                setState((s) => ({
-                  ...s,
-                  goals: s.goals.map((g) => (g.id === id ? { ...g, completed: !g.completed } : g)),
-                }))
+                setState((s) => {
+                  const target = s.goals.find((g) => g.id === id);
+                  const willComplete = target ? !target.completed : false;
+                  const next = {
+                    ...s,
+                    goals: s.goals.map((g) => (g.id === id ? { ...g, completed: !g.completed } : g)),
+                  };
+                  return willComplete ? withChallengeCompleted(next, 'REVISION') : next;
+                })
               }
               onDeleteGoal={(id) =>
                 setState((s) => ({ ...s, goals: s.goals.filter((g) => g.id !== id) }))
@@ -472,13 +808,16 @@ function AppContent() {
                     practiceAttempted: 0,
                     practiceCorrect: 0,
                   };
-                  return {
-                    ...s,
-                    chapterProgress: {
-                      ...s.chapterProgress,
-                      [chapterId]: { ...prev, revisionCount: prev.revisionCount + 1 },
+                  return withChallengeCompleted(
+                    {
+                      ...s,
+                      chapterProgress: {
+                        ...s.chapterProgress,
+                        [chapterId]: { ...prev, revisionCount: prev.revisionCount + 1 },
+                      },
                     },
-                  };
+                    'REVISION'
+                  );
                 })
               }
               onRecordPracticeAttempt={(chapterId, correct) =>
@@ -520,10 +859,15 @@ function AppContent() {
                 }))
               }
               onSaveMockTestResult={(res) =>
-                setState((s) => ({
-                  ...s,
-                  testHistory: [res, ...s.testHistory],
-                }))
+                setState((s) =>
+                  withChallengeCompleted(
+                    {
+                      ...s,
+                      testHistory: [res, ...s.testHistory],
+                    },
+                    'MOCK_TEST'
+                  )
+                )
               }
               onSaveDailyAiSet={(newSet) =>
                 setState((s) => ({
@@ -539,10 +883,15 @@ function AppContent() {
               onNavigateTab={navigateTab}
               onOpenSubView={openSubView}
               onToggleGoal={(id) =>
-                setState((s) => ({
-                  ...s,
-                  goals: s.goals.map((g) => (g.id === id ? { ...g, completed: !g.completed } : g)),
-                }))
+                setState((s) => {
+                  const target = s.goals.find((g) => g.id === id);
+                  const willComplete = target ? !target.completed : false;
+                  const next = {
+                    ...s,
+                    goals: s.goals.map((g) => (g.id === id ? { ...g, completed: !g.completed } : g)),
+                  };
+                  return willComplete ? withChallengeCompleted(next, 'REVISION') : next;
+                })
               }
               onOpenClassSelector={() => setShowClassModal(true)}
               onAddCustomRevision={(title, subject, time) => {
@@ -572,6 +921,29 @@ function AppContent() {
                   alarms: [{ id: `alm_${Date.now()}`, ...alarmInput }, ...s.alarms],
                 }));
               }}
+              onToggleDailyChallenge={(challengeId) =>
+                setState((s) => ({
+                  ...s,
+                  dailyChallenges: (s.dailyChallenges ?? []).map((dc) =>
+                    dc.id === challengeId
+                      ? { ...dc, completed: !dc.completed, completedAt: !dc.completed ? Date.now() : undefined }
+                      : dc
+                  ),
+                }))
+              }
+              onOpenChallengeAction={(category) => {
+                if (category === 'TUTOR') navigateTab('tutor');
+                else if (category === 'FOCUS') {
+                  setBlockerSubTab('focus');
+                  navigateTab('blocker');
+                } else if (category === 'MOCK_TEST') navigateTab('practice');
+                else openSubView('planner');
+              }}
+              onRequestNotificationPermission={handleRequestNotificationPermission}
+              onOpenMusicStudio={() => {
+                setBlockerSubTab('music');
+                navigateTab('blocker');
+              }}
             />
           ) : activeTab === 'tutor' ? (
             <AiTutorTab
@@ -581,12 +953,15 @@ function AppContent() {
               chatHistory={state.chatHistory}
               customApiKey={state.customGeminiApiKey}
               onAddChatMessages={(userMsg, assistantMsg) =>
-                setState((s) => ({
-                  ...s,
-                  chatHistory: assistantMsg
-                    ? [...s.chatHistory, userMsg, assistantMsg]
-                    : [...s.chatHistory, userMsg],
-                }))
+                setState((s) => {
+                  const next = {
+                    ...s,
+                    chatHistory: assistantMsg
+                      ? [...s.chatHistory, userMsg, assistantMsg]
+                      : [...s.chatHistory, userMsg],
+                  };
+                  return assistantMsg ? withChallengeCompleted(next, 'TUTOR') : next;
+                })
               }
               onToggleSaveAnswer={(id) =>
                 setState((s) => ({
@@ -603,6 +978,25 @@ function AppContent() {
               pomodoroPhase={pomodoroPhase}
               pomodoroRemainingSec={pomodoroRemainingSec}
               pomodoroRunning={pomodoroRunning}
+              initialSubTab={blockerSubTab}
+              musicTracks={allMusicTracks}
+              activeMusicTrack={activeMusicTrack}
+              musicPlaying={musicPlaying}
+              musicLoop={musicLoop}
+              musicCurrentSec={musicCurrentSec}
+              musicDurationSec={musicDurationSec}
+              onToggleMusicPlay={handleToggleMusicPlay}
+              onSelectMusicTrack={handleSelectMusicTrack}
+              onPrevMusicTrack={() => handleStepMusicTrack(-1)}
+              onNextMusicTrack={() => handleStepMusicTrack(1)}
+              onToggleMusicLoop={() => setMusicLoop((v) => !v)}
+              onChangeMusicVolume={(vol) => setState((s) => ({ ...s, studyMusicVolume: vol }))}
+              onSeekMusic={(sec) => studyMusicPlayer.seek(sec)}
+              onAddCustomMusicFiles={handleAddCustomMusicFiles}
+              onRemoveCustomMusicTrack={handleRemoveCustomMusicTrack}
+              onToggleAutoMusicWithFocus={(enabled) =>
+                setState((s) => ({ ...s, studyMusicAutoWithFocus: enabled }))
+              }
               onToggleBlockedApp={(pkg) =>
                 setState((s) => ({
                   ...s,
@@ -617,6 +1011,10 @@ function AppContent() {
                   focusPausedRemainingMs: 0,
                 }));
                 setPomodoroRunning(true);
+                if (state.studyMusicAutoWithFocus && !musicPlaying) {
+                  const ok = studyMusicPlayer.playTrack(activeMusicTrack);
+                  setMusicPlaying(ok);
+                }
               }}
               onPauseFocus={() =>
                 setState((s) => ({
@@ -632,7 +1030,11 @@ function AppContent() {
                   focusPausedRemainingMs: 0,
                 }))
               }
-              onStopFocus={(emergency) =>
+              onStopFocus={(emergency) => {
+                if (musicPlaying) {
+                  studyMusicPlayer.stop();
+                  setMusicPlaying(false);
+                }
                 setState((s) => {
                   const plannedMs = s.focusDurationMinutes * 60_000;
                   const rem =
@@ -640,7 +1042,7 @@ function AppContent() {
                       ? s.focusPausedRemainingMs
                       : Math.max(0, s.focusActiveUntil - Date.now());
                   const actualMinutes = Math.max(1, Math.round((plannedMs - rem) / 60_000));
-                  return {
+                  const next: PersistedAppState = {
                     ...s,
                     focusActiveUntil: 0,
                     focusPausedRemainingMs: 0,
@@ -658,8 +1060,9 @@ function AppContent() {
                       ...s.focusSessions,
                     ],
                   };
-                })
-              }
+                  return !emergency ? withChallengeCompleted(next, 'FOCUS') : next;
+                });
+              }}
               onTogglePomodoro={() => setPomodoroRunning((r) => !r)}
               onUpdateYouTubeFilter={(patch) => setState((s) => ({ ...s, ...patch }))}
               onUpdateAiFilter={(patch) => setState((s) => ({ ...s, ...patch }))}
@@ -774,6 +1177,93 @@ function AppContent() {
               {isHindi ? 'अभी पढ़ाई शुरू करें' : 'Start Study Session Now'}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Local In-App Study & Daily Challenge Notification Toasts */}
+      {notifications.length > 0 && (
+        <div className="fixed bottom-20 md:bottom-5 right-4 z-40 w-[min(360px,calc(100vw-2rem))] space-y-2.5">
+          {notifications.map((note) => (
+            <div
+              key={note.id}
+              className="rounded-2xl border border-cyan-500/40 bg-white/95 dark:bg-[#0A173B]/95 backdrop-blur-md p-4 shadow-xl flex items-start gap-3"
+            >
+              <div className="h-9 w-9 rounded-xl bg-cyan-500/15 text-cyan-500 flex items-center justify-center shrink-0">
+                <Bell className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-slate-900 dark:text-white">{note.title}</p>
+                <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5 leading-snug">{note.body}</p>
+                {(note.actionTab || note.actionSubView) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (note.actionSubView) openSubView(note.actionSubView);
+                      else if (note.actionTab) navigateTab(note.actionTab);
+                      setNotifications((prev) => prev.filter((item) => item.id !== note.id));
+                    }}
+                    className="mt-2 text-[11px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline"
+                  >
+                    {isHindi ? 'अभी खोलें' : 'Open Now'} →
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setNotifications((prev) => prev.filter((item) => item.id !== note.id))}
+                aria-label="Dismiss notification"
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Persistent Floating Study Music Mini-Player */}
+      {musicPlaying && (
+        <div className="fixed bottom-20 md:bottom-5 left-4 z-40 rounded-2xl border border-cyan-500/40 bg-white/95 dark:bg-[#0A173B]/95 backdrop-blur-md px-3.5 py-2.5 shadow-xl flex items-center gap-3 max-w-[300px]">
+          <button
+            type="button"
+            onClick={() => {
+              setBlockerSubTab('music');
+              navigateTab('blocker');
+            }}
+            className="h-9 w-9 rounded-xl bg-cyan-500/15 text-cyan-500 flex items-center justify-center shrink-0"
+            title={isHindi ? 'म्यूज़िक स्टूडियो खोलें' : 'Open Study Music Studio'}
+          >
+            <Music2 className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setBlockerSubTab('music');
+              navigateTab('blocker');
+            }}
+            className="min-w-0 flex-1 text-left"
+          >
+            <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+              {isHindi ? activeMusicTrack.titleHi : activeMusicTrack.titleEn}
+            </p>
+            <p className="text-[10px] text-cyan-600 dark:text-cyan-400 truncate">{activeMusicTrack.tag}</p>
+          </button>
+          <button
+            type="button"
+            onClick={handleToggleMusicPlay}
+            aria-label="Pause study music"
+            className="h-8 w-8 rounded-lg bg-cyan-500 text-slate-950 flex items-center justify-center shrink-0"
+          >
+            {musicPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleStepMusicTrack(1)}
+            aria-label="Next study track"
+            className="h-8 w-8 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center shrink-0"
+          >
+            <SkipForward className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
     </div>

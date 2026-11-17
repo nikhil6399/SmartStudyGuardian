@@ -1,5 +1,6 @@
 import {
   ChapterItem,
+  DailyChallengeItem,
   DailyStudyDay,
   ExamTrack,
   PersistedAppState,
@@ -720,6 +721,66 @@ function buildInitialWeek(): DailyStudyDay[] {
   });
 }
 
+export function getLocalDateIso(date: Date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function buildDailyChallengesForDate(dateIso: string, track: ExamTrack): DailyChallengeItem[] {
+  const meta = EXAM_TRACK_LABELS[track] ?? EXAM_TRACK_LABELS.CLASS_12_BOARD;
+  const trackChapters = JEE_CHAPTERS.filter((c) => c.track === track);
+  const pool = trackChapters.length > 0 ? trackChapters : JEE_CHAPTERS;
+  const daySeed = dateIso.split('-').reduce((acc, part) => acc + Number(part || 0), 0);
+  const focusChapter = pool[daySeed % pool.length];
+
+  return [
+    {
+      id: `dc_${dateIso}_tutor`,
+      category: 'TUTOR',
+      titleEn: `Ask AI Guru 1 Doubt (${meta.en})`,
+      titleHi: `AI गुरु से 1 प्रश्न पूछें (${meta.hi})`,
+      descriptionEn: `Type, speak, or snap a photo of a ${focusChapter.subject.toLowerCase()} question for step-by-step mastery.`,
+      descriptionHi: `${focusChapter.subject === 'PHYSICS' ? 'भौतिकी' : focusChapter.subject === 'CHEMISTRY' ? 'रसायन' : 'गणित'} का कोई प्रश्न लिखकर, बोलकर या फोटो से पूछें।`,
+      xpReward: 40,
+      completed: false,
+    },
+    {
+      id: `dc_${dateIso}_focus`,
+      category: 'FOCUS',
+      titleEn: 'Complete 1 Distraction-Free Focus Block',
+      titleHi: '1 फोकस मोड अध्ययन सत्र पूरा करें',
+      descriptionEn: 'Start Focus Mode with App Blocker active and finish a focused study block.',
+      descriptionHi: 'ऐप ब्लॉकर के साथ फोकस मोड चालू करके कम से कम एक फोकस सत्र पूरा करें।',
+      xpReward: 60,
+      completed: false,
+    },
+    {
+      id: `dc_${dateIso}_mock`,
+      category: 'MOCK_TEST',
+      titleEn: `Attempt "${focusChapter.title}" Mock Test`,
+      titleHi: `"${focusChapter.title}" मॉक टेस्ट हल करें`,
+      descriptionEn: `Generate and submit a ${meta.en} mock drill to track accuracy in Analytics.`,
+      descriptionHi: `${meta.hi} के लिए मॉक टेस्ट बनाएं और सटीकता ट्रैक करें।`,
+      xpReward: 80,
+      completed: false,
+    },
+    {
+      id: `dc_${dateIso}_revision`,
+      category: 'REVISION',
+      titleEn: `Log Daily Revision · ${focusChapter.title}`,
+      titleHi: `दैनिक पुनरावृत्ति: ${focusChapter.title}`,
+      descriptionEn: 'Review core formulas & key points, or mark a daily study goal complete.',
+      descriptionHi: 'आज के मुख्य सूत्र दोहराएं या दैनिक अध्ययन लक्ष्य पूरा करें।',
+      xpReward: 50,
+      completed: false,
+    },
+  ];
+}
+
+const INITIAL_DATE_ISO = getLocalDateIso();
+
 export const INITIAL_APP_STATE: PersistedAppState = {
   hasSelectedClass: false,
   selectedClassTrack: 'CLASS_12_BOARD',
@@ -827,6 +888,12 @@ export const INITIAL_APP_STATE: PersistedAppState = {
   ],
   weeklyStudy: buildInitialWeek(),
   dailyAiSets: [],
+  dailyChallengeDate: INITIAL_DATE_ISO,
+  dailyChallenges: buildDailyChallengesForDate(INITIAL_DATE_ISO, 'CLASS_12_BOARD'),
+  dailyChallengeHistory: [],
   customGeminiApiKey: '',
   customRevisions: [],
+  studyMusicTrackId: 'lofi_chords',
+  studyMusicVolume: 0.45,
+  studyMusicAutoWithFocus: true,
 };

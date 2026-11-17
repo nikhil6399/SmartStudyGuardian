@@ -45,6 +45,10 @@
         android:usesCleartextTraffic="false"
         tools:targetApi="35">
 
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="${admobAppId}" />
+
         <!-- Direct entry to Home Dashboard (no login / no signup) -->
         <activity
             android:name=".ui.MainActivity"

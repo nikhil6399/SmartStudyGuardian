@@ -2,6 +2,9 @@ import {
   AppBlockerItem,
   ChatMessage,
   DailyAiQuestionSet,
+  DailyChallengeCategory,
+  DailyChallengeHistoryDay,
+  DailyChallengeItem,
   DailyStudyDay,
   ExamTrack,
   FilterLogItem,
@@ -17,7 +20,12 @@ import {
   TimetableSlot,
   MockTestResult,
 } from '../types';
-import { EXAM_TRACK_LABELS, INITIAL_APP_STATE } from '../data/jeeCatalog';
+import {
+  buildDailyChallengesForDate,
+  EXAM_TRACK_LABELS,
+  getLocalDateIso,
+  INITIAL_APP_STATE,
+} from '../data/jeeCatalog';
 
 const STORAGE_KEY = 'jee_ai_study_guardian_state_v1';
 
@@ -100,6 +108,10 @@ export function sanitizePersistedState(rawInput: unknown): PersistedAppState {
           language: m.language === 'hi' ? 'hi' : 'en',
           level: m.level ? normalizeExamTrack(m.level, selectedClassTrack) : undefined,
           content: m.content,
+          imageDataUrl:
+            typeof m.imageDataUrl === 'string' && m.imageDataUrl.startsWith('data:image/')
+              ? m.imageDataUrl
+              : undefined,
           structured: isPlainRecord(m.structured)
             ? {
                 given: typeof m.structured.given === 'string' ? m.structured.given : '',
@@ -265,6 +277,59 @@ export function sanitizePersistedState(rawInput: unknown): PersistedAppState {
         }))
     : INITIAL_APP_STATE.customRevisions;
 
+  const todayIso = getLocalDateIso();
+  const validCategories = new Set<DailyChallengeCategory>(['TUTOR', 'FOCUS', 'MOCK_TEST', 'REVISION']);
+
+  const dailyChallengeHistory: DailyChallengeHistoryDay[] = Array.isArray(parsed.dailyChallengeHistory)
+    ? parsed.dailyChallengeHistory
+        .filter((h): h is DailyChallengeHistoryDay => isPlainRecord(h) && typeof h.dateIso === 'string')
+        .map((h) => ({
+          dateIso: h.dateIso,
+          completedCount: safePositiveNumber(h.completedCount, 0),
+          totalCount: safePositiveNumber(h.totalCount, 4, 1),
+        }))
+        .slice(0, 30)
+    : INITIAL_APP_STATE.dailyChallengeHistory;
+
+  const savedChallengeDate =
+    typeof parsed.dailyChallengeDate === 'string' && parsed.dailyChallengeDate.length >= 10
+      ? parsed.dailyChallengeDate
+      : todayIso;
+
+  let dailyChallenges: DailyChallengeItem[] =
+    Array.isArray(parsed.dailyChallenges) && parsed.dailyChallenges.length > 0
+      ? parsed.dailyChallenges
+          .filter(
+            (dc): dc is DailyChallengeItem =>
+              isPlainRecord(dc) && typeof dc.id === 'string' && typeof dc.titleEn === 'string'
+          )
+          .map((dc) => ({
+            id: dc.id,
+            category: validCategories.has(dc.category) ? dc.category : 'REVISION',
+            titleEn: dc.titleEn,
+            titleHi: typeof dc.titleHi === 'string' ? dc.titleHi : dc.titleEn,
+            descriptionEn: typeof dc.descriptionEn === 'string' ? dc.descriptionEn : '',
+            descriptionHi: typeof dc.descriptionHi === 'string' ? dc.descriptionHi : '',
+            xpReward: safePositiveNumber(dc.xpReward, 40, 10),
+            completed: Boolean(dc.completed),
+            completedAt: typeof dc.completedAt === 'number' ? dc.completedAt : undefined,
+          }))
+      : buildDailyChallengesForDate(todayIso, selectedClassTrack);
+
+  let effectiveChallengeDate = savedChallengeDate;
+  if (savedChallengeDate !== todayIso) {
+    const prevCompleted = dailyChallenges.filter((c) => c.completed).length;
+    if (dailyChallenges.length > 0 && !dailyChallengeHistory.some((h) => h.dateIso === savedChallengeDate)) {
+      dailyChallengeHistory.unshift({
+        dateIso: savedChallengeDate,
+        completedCount: prevCompleted,
+        totalCount: dailyChallenges.length,
+      });
+    }
+    dailyChallenges = buildDailyChallengesForDate(todayIso, selectedClassTrack);
+    effectiveChallengeDate = todayIso;
+  }
+
   return {
     ...INITIAL_APP_STATE,
     hasSelectedClass: typeof parsed.hasSelectedClass === 'boolean' ? parsed.hasSelectedClass : false,
@@ -306,8 +371,26 @@ export function sanitizePersistedState(rawInput: unknown): PersistedAppState {
     filterLogs,
     weeklyStudy: weeklyStudy.length > 0 ? weeklyStudy : INITIAL_APP_STATE.weeklyStudy,
     dailyAiSets,
+    dailyChallengeDate: effectiveChallengeDate,
+    dailyChallenges,
+    dailyChallengeHistory: dailyChallengeHistory.slice(0, 30),
     customGeminiApiKey: typeof parsed.customGeminiApiKey === 'string' ? parsed.customGeminiApiKey.trim() : '',
     customRevisions,
+    studyMusicTrackId:
+      typeof parsed.studyMusicTrackId === 'string' && parsed.studyMusicTrackId.trim()
+        ? parsed.studyMusicTrackId
+        : INITIAL_APP_STATE.studyMusicTrackId,
+    studyMusicVolume:
+      typeof parsed.studyMusicVolume === 'number' &&
+      Number.isFinite(parsed.studyMusicVolume) &&
+      parsed.studyMusicVolume >= 0 &&
+      parsed.studyMusicVolume <= 1
+        ? parsed.studyMusicVolume
+        : INITIAL_APP_STATE.studyMusicVolume,
+    studyMusicAutoWithFocus:
+      typeof parsed.studyMusicAutoWithFocus === 'boolean'
+        ? parsed.studyMusicAutoWithFocus
+        : INITIAL_APP_STATE.studyMusicAutoWithFocus,
   };
 }
 
@@ -324,7 +407,22 @@ export function loadPersistedState(): PersistedAppState {
 
 export function savePersistedState(state: PersistedAppState): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    // Keep only the 8 most recent chat image thumbnails in localStorage to avoid exceeding quota
+    let imageSlotsRemaining = 8;
+    const compactChat = [...state.chatHistory]
+      .reverse()
+      .map((msg) => {
+        if (!msg.imageDataUrl) return msg;
+        if (imageSlotsRemaining > 0) {
+          imageSlotsRemaining -= 1;
+          return msg;
+        }
+        const { imageDataUrl: _dropped, ...rest } = msg;
+        return rest;
+      })
+      .reverse();
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, chatHistory: compactChat }));
   } catch {
     // Ignore quota errors cleanly
   }
@@ -446,4 +544,92 @@ export function classifyContentLocally(
     matchedKeywords: [],
     confidenceNote: 'No distracting or inappropriate rules matched',
   };
+}
+
+export interface DailyFocusChartPoint {
+  dateIso: string;
+  shortLabel: string;
+  fullDateLabel: string;
+  focusMinutes: number;
+  studyMinutes: number;
+  totalMinutes: number;
+  totalHours: number;
+  sessionsCount: number;
+}
+
+export function getLast30DaysFocusData(state: PersistedAppState): DailyFocusChartPoint[] {
+  const focusByDate = new Map<string, { minutes: number; count: number }>();
+  for (const session of state.focusSessions) {
+    if (!session || typeof session.timestamp !== 'number') continue;
+    const dateIso = getLocalDateIso(new Date(session.timestamp));
+    const prev = focusByDate.get(dateIso) ?? { minutes: 0, count: 0 };
+    focusByDate.set(dateIso, {
+      minutes: prev.minutes + Math.max(0, Number(session.actualMinutes) || 0),
+      count: prev.count + 1,
+    });
+  }
+
+  const studyByDate = new Map<string, number>();
+  for (const day of state.weeklyStudy) {
+    if (!day || typeof day.dateIso !== 'string') continue;
+    const mins =
+      Math.max(0, day.physicsMinutes) +
+      Math.max(0, day.chemistryMinutes) +
+      Math.max(0, day.mathMinutes);
+    studyByDate.set(day.dateIso, (studyByDate.get(day.dateIso) ?? 0) + mins);
+  }
+
+  const now = new Date();
+  const points: DailyFocusChartPoint[] = [];
+
+  for (let offset = 29; offset >= 0; offset--) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - offset);
+    const dateIso = getLocalDateIso(d);
+    const focusInfo = focusByDate.get(dateIso) ?? { minutes: 0, count: 0 };
+    const studyMinutes = studyByDate.get(dateIso) ?? 0;
+    const totalMinutes = Math.max(focusInfo.minutes, studyMinutes);
+    const dayNum = String(d.getDate());
+    const monthShort = d.toLocaleDateString('en-US', { month: 'short' });
+
+    points.push({
+      dateIso,
+      shortLabel: offset === 0 ? 'Today' : `${d.getDate()}`,
+      fullDateLabel: offset === 0 ? `Today (${monthShort} ${dayNum})` : `${monthShort} ${dayNum}`,
+      focusMinutes: focusInfo.minutes,
+      studyMinutes,
+      totalMinutes,
+      totalHours: Number((totalMinutes / 60).toFixed(2)),
+      sessionsCount: focusInfo.count,
+    });
+  }
+
+  return points;
+}
+
+export function maskApiKey(rawKey: string): string {
+  const key = rawKey.trim();
+  if (!key) return '';
+  if (key.length <= 8) return '••••••••';
+  return `${key.slice(0, 4)}••••••••${key.slice(-4)}`;
+}
+
+export async function safeParseJsonResponse<T = Record<string, unknown>>(res: Response): Promise<T | null> {
+  try {
+    const text = await res.text();
+    if (!text) return null;
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
+export function sendLocalNotificationSafe(title: string, body: string): void {
+  if (typeof Notification === 'undefined') return;
+  if (Notification.permission !== 'granted') return;
+  try {
+    new Notification(title, { body });
+  } catch {
+    // Ignore browser/iframe notification errors cleanly
+  }
 }

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Eye, Lock, Pause, Play, Shield, ShieldAlert, Square, Youtube } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Eye, Headphones, Lock, Music2, Pause, Play, Plus, Repeat, Shield, ShieldAlert, SkipBack, SkipForward, Square, Trash2, Volume2, Youtube } from 'lucide-react';
 import { FilterStrictness, PersistedAppState } from '../types';
 import { formatHms, formatMmSs } from '../utils/localStorageState';
+import { StudyMusicTrack } from '../utils/studyMusicPlayer';
 import { StudyGuardianMascot } from './MascotEmblem';
 
 interface BlockerAndFocusTabProps {
@@ -10,6 +11,23 @@ interface BlockerAndFocusTabProps {
   pomodoroPhase: 'STUDY' | 'BREAK';
   pomodoroRemainingSec: number;
   pomodoroRunning: boolean;
+  initialSubTab?: 'focus' | 'music' | 'apps' | 'youtube' | 'content_filter';
+  musicTracks: StudyMusicTrack[];
+  activeMusicTrack: StudyMusicTrack;
+  musicPlaying: boolean;
+  musicLoop: boolean;
+  musicCurrentSec: number;
+  musicDurationSec: number;
+  onToggleMusicPlay: () => void;
+  onSelectMusicTrack: (trackId: string, autoPlay?: boolean) => void;
+  onPrevMusicTrack: () => void;
+  onNextMusicTrack: () => void;
+  onToggleMusicLoop: () => void;
+  onChangeMusicVolume: (vol: number) => void;
+  onSeekMusic: (seconds: number) => void;
+  onAddCustomMusicFiles: (files: FileList) => void;
+  onRemoveCustomMusicTrack: (trackId: string) => void;
+  onToggleAutoMusicWithFocus: (enabled: boolean) => void;
   onToggleBlockedApp: (packageName: string) => void;
   onStartFocus: (durationMinutes: number) => void;
   onPauseFocus: () => void;
@@ -26,6 +44,23 @@ export function BlockerAndFocusTab({
   pomodoroPhase,
   pomodoroRemainingSec,
   pomodoroRunning,
+  initialSubTab = 'focus',
+  musicTracks,
+  activeMusicTrack,
+  musicPlaying,
+  musicLoop,
+  musicCurrentSec,
+  musicDurationSec,
+  onToggleMusicPlay,
+  onSelectMusicTrack,
+  onPrevMusicTrack,
+  onNextMusicTrack,
+  onToggleMusicLoop,
+  onChangeMusicVolume,
+  onSeekMusic,
+  onAddCustomMusicFiles,
+  onRemoveCustomMusicTrack,
+  onToggleAutoMusicWithFocus,
   onToggleBlockedApp,
   onStartFocus,
   onPauseFocus,
@@ -36,10 +71,15 @@ export function BlockerAndFocusTab({
   onUpdateAiFilter,
 }: BlockerAndFocusTabProps) {
   const isHindi = state.language === 'hi';
-  const [subTab, setSubTab] = useState<'focus' | 'apps' | 'youtube' | 'content_filter'>('focus');
+  const [subTab, setSubTab] = useState<'focus' | 'music' | 'apps' | 'youtube' | 'content_filter'>(initialSubTab);
   const [selectedDuration, setSelectedDuration] = useState(state.focusDurationMinutes || 120);
   const [customMinutes, setCustomMinutes] = useState('90');
   const [showShieldPreview, setShowShieldPreview] = useState(false);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setSubTab(initialSubTab);
+  }, [initialSubTab]);
 
   // YouTube local inputs
   const [ytKeywords, setYtKeywords] = useState(state.youtubeKeywords);
@@ -61,6 +101,7 @@ export function BlockerAndFocusTab({
         <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-slate-200/80 dark:bg-[#0A173B] border border-slate-200 dark:border-slate-800">
           {[
             { id: 'focus', label: isHindi ? 'स्मार्ट फोकस' : 'Focus Mode' },
+            { id: 'music', label: isHindi ? 'स्टडी म्यूज़िक' : 'Study Music' },
             { id: 'apps', label: isHindi ? 'ऐप ब्लॉकर' : 'App Blocker' },
             { id: 'youtube', label: isHindi ? 'YouTube नियंत्रण' : 'YouTube Study Mode' },
             { id: 'content_filter', label: isHindi ? 'सुरक्षा फ़िल्टर' : 'Content Safety Filter' },
@@ -221,6 +262,52 @@ export function BlockerAndFocusTab({
                 {pomodoroRunning ? 'Pause Pomodoro' : 'Start Pomodoro'}
               </button>
             </div>
+
+            {/* Embedded Focus Music Quick Bar */}
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-10 w-10 rounded-xl bg-cyan-500/15 text-cyan-500 flex items-center justify-center shrink-0">
+                  <Headphones className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                    {isHindi ? 'फोकस स्टडी म्यूज़िक' : 'Focus Study Music'}
+                  </p>
+                  <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                    {isHindi ? activeMusicTrack.titleHi : activeMusicTrack.titleEn}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onToggleMusicPlay}
+                  className={`min-h-[40px] px-3.5 rounded-xl font-semibold text-xs inline-flex items-center gap-1.5 ${
+                    musicPlaying
+                      ? 'bg-amber-400 text-slate-950'
+                      : 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/25'
+                  }`}
+                >
+                  {musicPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                  <span>{musicPlaying ? (isHindi ? 'रोकें' : 'Pause') : isHindi ? 'चलाएं' : 'Play'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onNextMusicTrack}
+                  aria-label="Next study track"
+                  className="min-h-[40px] px-3 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-semibold inline-flex items-center justify-center"
+                >
+                  <SkipForward className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSubTab('music')}
+                  className="min-h-[40px] px-3 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-semibold text-cyan-600 dark:text-cyan-400"
+                >
+                  {isHindi ? 'सभी ट्रैक' : 'Studio'}
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="lg:col-span-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0A173B] p-6 space-y-4">
@@ -246,6 +333,235 @@ export function BlockerAndFocusTab({
                   </span>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 1.5. STUDY MUSIC PLAYER STUDIO */}
+      {subTab === 'music' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Now Playing Deck */}
+          <div className="lg:col-span-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0A173B] p-6 space-y-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 text-slate-950 flex items-center justify-center shrink-0 shadow-md">
+                  <Music2 className="w-6 h-6" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">
+                    {activeMusicTrack.tag}
+                  </span>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white truncate">
+                    {isHindi ? activeMusicTrack.titleHi : activeMusicTrack.titleEn}
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
+                    {isHindi ? activeMusicTrack.subtitleHi : activeMusicTrack.subtitleEn}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Seek Bar for custom audio tracks */}
+            {activeMusicTrack.kind === 'custom' && musicDurationSec > 0 ? (
+              <div className="space-y-1.5">
+                <input
+                  type="range"
+                  min={0}
+                  max={Math.floor(musicDurationSec)}
+                  value={Math.min(Math.floor(musicCurrentSec), Math.floor(musicDurationSec))}
+                  onChange={(e) => onSeekMusic(Number(e.target.value))}
+                  aria-label="Seek audio position"
+                  className="w-full accent-cyan-500 cursor-pointer"
+                />
+                <div className="flex justify-between text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                  <span>{formatMmSs(musicCurrentSec)}</span>
+                  <span>{formatMmSs(musicDurationSec)}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#06102B] border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+                <span className="text-slate-600 dark:text-slate-300">
+                  {musicPlaying
+                    ? isHindi
+                      ? 'निःशब्द-मुक्त निरंतर फोकस ध्वनि चालू है'
+                      : 'Seamless ambient study sound active'
+                    : isHindi
+                    ? 'चलाने के लिए Play दबाएं (इंटरनेट के बिना चलता है)'
+                    : 'Press Play to start continuous offline focus audio'}
+                </span>
+                <span className="font-mono text-cyan-600 dark:text-cyan-400 font-semibold">
+                  {musicPlaying ? 'ON AIR' : 'READY'}
+                </span>
+              </div>
+            )}
+
+            {/* Playback Transport Controls */}
+            <div className="flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={onPrevMusicTrack}
+                aria-label="Previous track"
+                className="min-h-[44px] min-w-[44px] rounded-xl border border-slate-300 dark:border-slate-700 hover:border-cyan-500 flex items-center justify-center text-slate-700 dark:text-slate-200"
+              >
+                <SkipBack className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={onToggleMusicPlay}
+                className="min-h-[48px] px-7 rounded-2xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm inline-flex items-center gap-2 shadow-sm"
+              >
+                {musicPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                <span>{musicPlaying ? (isHindi ? 'रोकें' : 'Pause') : isHindi ? 'सुनें' : 'Play'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={onNextMusicTrack}
+                aria-label="Next track"
+                className="min-h-[44px] min-w-[44px] rounded-xl border border-slate-300 dark:border-slate-700 hover:border-cyan-500 flex items-center justify-center text-slate-700 dark:text-slate-200"
+              >
+                <SkipForward className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={onToggleMusicLoop}
+                aria-label="Toggle loop"
+                title={isHindi ? 'लूप मोड' : 'Repeat Track'}
+                className={`min-h-[44px] min-w-[44px] rounded-xl border flex items-center justify-center ${
+                  musicLoop
+                    ? 'border-cyan-500 bg-cyan-500/15 text-cyan-600 dark:text-cyan-300'
+                    : 'border-slate-300 dark:border-slate-700 text-slate-500'
+                }`}
+              >
+                <Repeat className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Volume & Auto-Play Settings */}
+            <div className="space-y-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <Volume2 className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={Math.round((state.studyMusicVolume ?? 0.45) * 100)}
+                  onChange={(e) => onChangeMusicVolume(Number(e.target.value) / 100)}
+                  aria-label="Music volume"
+                  className="flex-1 accent-cyan-500 cursor-pointer"
+                />
+                <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400 w-9 text-right">
+                  {Math.round((state.studyMusicVolume ?? 0.45) * 100)}%
+                </span>
+              </div>
+
+              <label className="flex items-center justify-between gap-3 cursor-pointer min-h-[40px]">
+                <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                  {isHindi
+                    ? 'फोकस मोड शुरू होने पर संगीत अपने आप चलाएं'
+                    : 'Auto-play music when Focus Session starts'}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={state.studyMusicAutoWithFocus}
+                  onChange={(e) => onToggleAutoMusicWithFocus(e.target.checked)}
+                  className="h-4 w-4 accent-cyan-500"
+                />
+              </label>
+            </div>
+          </div>
+
+          {/* Playlist & Custom Audio Upload */}
+          <div className="lg:col-span-7 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0A173B] p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  {isHindi ? 'स्टडी म्यूज़िक प्लेलिस्ट' : 'Study Soundscapes & Your Audio'}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {isHindi
+                    ? 'अन्य टैब (AI गुरु / मॉक टेस्ट) खोलने पर भी संगीत चलता रहता है।'
+                    : 'Keeps playing cleanly while you solve doubts in AI Tutor or take a Mock Test.'}
+                </p>
+              </div>
+              <div>
+                <input
+                  ref={audioInputRef}
+                  type="file"
+                  accept="audio/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      onAddCustomMusicFiles(e.target.files);
+                      e.target.value = '';
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => audioInputRef.current?.click()}
+                  className="min-h-[40px] px-3.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-700 dark:text-cyan-300 font-bold text-xs inline-flex items-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{isHindi ? 'अपना MP3 जोड़ें' : 'Add MP3 / Audio'}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2.5">
+              {musicTracks.map((track) => {
+                const isSelected = activeMusicTrack.id === track.id;
+                const isThisPlaying = isSelected && musicPlaying;
+                return (
+                  <div
+                    key={track.id}
+                    className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 transition-colors ${
+                      isSelected
+                        ? 'border-cyan-500 bg-cyan-500/10'
+                        : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#06102B]'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isSelected) onToggleMusicPlay();
+                        else onSelectMusicTrack(track.id, true);
+                      }}
+                      className="flex items-center gap-3 min-w-0 flex-1 text-left"
+                    >
+                      <span
+                        className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
+                          isThisPlaying
+                            ? 'bg-cyan-500 text-slate-950'
+                            : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
+                        }`}
+                      >
+                        {isThisPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                          {isHindi ? track.titleHi : track.titleEn}
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                          {track.tag} · {isHindi ? track.subtitleHi : track.subtitleEn}
+                        </p>
+                      </div>
+                    </button>
+
+                    {track.kind === 'custom' && (
+                      <button
+                        type="button"
+                        onClick={() => onRemoveCustomMusicTrack(track.id)}
+                        aria-label="Remove custom track"
+                        className="min-h-[36px] min-w-[36px] rounded-lg text-slate-400 hover:text-red-500 flex items-center justify-center shrink-0"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

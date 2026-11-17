@@ -102,9 +102,30 @@ export interface ChatMessage {
   language: LanguageMode;
   level?: StudyLevel;
   content: string;
+  imageDataUrl?: string;
   structured?: StructuredAiAnswer;
   saved: boolean;
   timestamp: number;
+}
+
+export type DailyChallengeCategory = 'TUTOR' | 'FOCUS' | 'MOCK_TEST' | 'REVISION';
+
+export interface DailyChallengeItem {
+  id: string;
+  category: DailyChallengeCategory;
+  titleEn: string;
+  titleHi: string;
+  descriptionEn: string;
+  descriptionHi: string;
+  xpReward: number;
+  completed: boolean;
+  completedAt?: number;
+}
+
+export interface DailyChallengeHistoryDay {
+  dateIso: string;
+  completedCount: number;
+  totalCount: number;
 }
 
 export interface MockTestResult {
@@ -213,6 +234,12 @@ export interface PersistedAppState {
   filterLogs: FilterLogItem[];
   weeklyStudy: DailyStudyDay[];
   dailyAiSets: DailyAiQuestionSet[];
+  dailyChallengeDate: string;
+  dailyChallenges: DailyChallengeItem[];
+  dailyChallengeHistory: DailyChallengeHistoryDay[];
   customGeminiApiKey: string;
   customRevisions: { id: string; title: string; subject: Subject; time: string }[];
+  studyMusicTrackId: string;
+  studyMusicVolume: number;
+  studyMusicAutoWithFocus: boolean;
 }

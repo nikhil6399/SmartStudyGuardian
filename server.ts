@@ -1,11 +1,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import express from "express";
+import http from "http";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { generateDiversifiedChapterQuestions } from "./serverQuestionBank";
 
 dotenv.config();
+if (!process.env.DISABLE_HMR) {
+  process.env.DISABLE_HMR = "true";
+}
 
 const PORT = 3000;
 const WORKSPACE_ROOT = process.cwd();
@@ -40,13 +44,53 @@ function extractJsonObjectText(raw: string): string {
   return trimmed;
 }
 
+const ALLOWED_IMAGE_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/heic",
+  "image/heif",
+]);
+
+function normalizeImageInput(rawBase64?: unknown, rawMimeType?: unknown): { data: string; mimeType: string } | null {
+  if (typeof rawBase64 !== "string" || !rawBase64.trim()) return null;
+  let trimmed = rawBase64.trim();
+  let detectedMime = typeof rawMimeType === "string" ? rawMimeType.trim().toLowerCase() : "";
+
+  const dataUrlMatch = trimmed.match(/^data:([^;]+);base64,([\s\S]+)$/i);
+  if (dataUrlMatch) {
+    detectedMime = dataUrlMatch[1].trim().toLowerCase();
+    trimmed = dataUrlMatch[2].trim();
+  }
+
+  if (detectedMime === "image/jpg") detectedMime = "image/jpeg";
+  if (!ALLOWED_IMAGE_MIME_TYPES.has(detectedMime)) {
+    detectedMime = "image/jpeg";
+  }
+
+  // Strip whitespace/newlines from base64
+  const cleanBase64 = trimmed.replace(/\s+/g, "");
+  if (cleanBase64.length < 32) return null;
+  return { data: cleanBase64, mimeType: detectedMime };
+}
+
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: "2mb" }));
+  const httpServer = http.createServer(app);
+  app.use(express.json({ limit: "15mb" }));
   app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (err && typeof err === "object" && "type" in err && (err as { type?: string }).type === "entity.parse.failed") {
-      res.status(400).json({ error: "Invalid request payload." });
-      return;
+    if (err && typeof err === "object" && "type" in err) {
+      const errType = (err as { type?: string }).type;
+      if (errType === "entity.too.large") {
+        res.status(413).json({ error: "Image or request payload is too large. Please upload a smaller image." });
+        return;
+      }
+      if (errType === "entity.parse.failed") {
+        res.status(400).json({ error: "Invalid request payload." });
+        return;
+      }
     }
     next(err);
   });
@@ -56,7 +100,7 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  // Real Gemini AI Study Tutor endpoint (shared by Web & Android app)
+  // Real Gemini AI Study Tutor endpoint (shared by Web & Android app, supports text + photo questions)
   app.post("/api/ai/tutor", async (req, res) => {
     try {
       const customKeyHeader = req.headers["x-gemini-api-key"];
@@ -69,7 +113,9 @@ async function startServer() {
           : process.env.GEMINI_API_KEY;
 
       const {
-        question,
+        question = "",
+        imageBase64,
+        imageMimeType,
         subject = "PHYSICS",
         language = "en",
         mode = "step_by_step",
@@ -86,10 +132,26 @@ async function startServer() {
         return;
       }
 
-      if (!question || typeof question !== "string" || !question.trim()) {
-        res.status(400).json({ error: "Please enter a valid study question." });
+      const imageInput = normalizeImageInput(imageBase64, imageMimeType);
+      const rawQuestion = typeof question === "string" ? question.trim() : "";
+
+      if (!rawQuestion && !imageInput) {
+        res.status(400).json({
+          error:
+            language === "hi"
+              ? "कृपया अपना प्रश्न लिखें या प्रश्न की फोटो अपलोड करें।"
+              : "Please enter a study question or attach a question photo.",
+        });
         return;
       }
+
+      const effectiveQuestionText = rawQuestion
+        ? imageInput
+          ? `Refer to the attached study image and solve this student's request carefully: ${rawQuestion}`
+          : rawQuestion
+        : language === "hi"
+        ? "इस फोटो में दिए गए प्रश्न को ध्यान से पढ़ें और पूरा चरण-दर-चरण हल (Given, Formula, Steps, Final Answer) समझाएं।"
+        : "Carefully read and solve the study question or diagram shown in this image step-by-step.";
 
       const ai = new GoogleGenAI({
         apiKey,
@@ -135,7 +197,7 @@ async function startServer() {
           : "For Physics, always state physical quantities with proper SI units, signs/directions, vector formulas, and step-by-step numerical values inside $...$ or $$...$$.";
 
       const wantsCode = /\b(code|program|python|java|kotlin|c\+\+|javascript|algorithm)\b/i.test(
-        question
+        effectiveQuestionText
       );
 
       const systemInstruction = [
@@ -143,6 +205,9 @@ async function startServer() {
         langInstruction,
         modeInstruction,
         subjectInstruction,
+        imageInput
+          ? "When an image is provided, carefully transcribe the given values, figure/circuit/graph details, or equation from the image into the 'given' field before solving."
+          : "",
         "FORMAT RULES (CRITICAL):",
         "- Return JSON matching the required schema.",
         "- NEVER output Markdown symbols like **, ##, *, or code fences inside text fields.",
@@ -152,7 +217,23 @@ async function startServer() {
           ? "- Only include brief clean code if the student explicitly asked for programming code."
           : "- Do NOT output any programming syntax or computer code.",
         "- Every step in the steps array must be one clear, easy-to-read step explaining the calculation.",
-      ].join(" ");
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      const multimodalContents = imageInput
+        ? {
+            parts: [
+              {
+                inlineData: {
+                  mimeType: imageInput.mimeType,
+                  data: imageInput.data,
+                },
+              },
+              { text: effectiveQuestionText },
+            ],
+          }
+        : effectiveQuestionText;
 
       let rawText = "";
       let lastErr: unknown = null;
@@ -162,7 +243,7 @@ async function startServer() {
           const targetModel = attempt === 2 ? "gemini-4-hydrogen" : "gemini-3.1-flash-lite";
           const response = await ai.models.generateContent({
             model: targetModel,
-            contents: question.trim(),
+            contents: multimodalContents,
             config: {
               systemInstruction: useSchema
                 ? systemInstruction
@@ -551,10 +632,37 @@ async function startServer() {
   });
 
   if (process.env.NODE_ENV !== "production") {
+    const isHmrDisabled = process.env.DISABLE_HMR === "true";
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: !isHmrDisabled,
+        ws: isHmrDisabled ? false : undefined,
+        watch: isHmrDisabled ? null : {},
+      },
       appType: "spa",
     });
+
+    if (isHmrDisabled) {
+      app.get("/@vite/client", async (_req, res, next) => {
+        try {
+          const result = await vite.transformRequest("/@vite/client");
+          if (!result?.code) {
+            return next();
+          }
+          const sanitizedClient = result.code.replace(
+            "transport.connect(createHMRHandler(handleMessage));",
+            "// HMR WebSocket connection disabled when DISABLE_HMR=true"
+          );
+          res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+          res.setHeader("Cache-Control", "no-store");
+          res.send(sanitizedClient);
+        } catch {
+          next();
+        }
+      });
+    }
+
     app.use(vite.middlewares);
   } else {
     const distDir = path.join(WORKSPACE_ROOT, "dist");
@@ -564,7 +672,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`JEE AI Study Guardian server running on http://0.0.0.0:${PORT}`);
   });
 }

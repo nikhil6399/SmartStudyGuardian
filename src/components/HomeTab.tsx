@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { AlarmClock, ArrowRight, BookOpen, Brain, CalendarDays, GraduationCap, LineChart, Plus, Shield, Sparkles, Timer, X } from 'lucide-react';
+import { AlarmClock, ArrowRight, Bell, Brain, CalendarDays, CheckCircle2, Circle, GraduationCap, LineChart, Music2, Plus, Shield, Sparkles, Timer, Trophy, X } from 'lucide-react';
 import { EXAM_TRACK_LABELS, JEE_CHAPTERS } from '../data/jeeCatalog';
-import { MainTab, PersistedAppState, StudyAlarm, StudyGoal, Subject, SubView } from '../types';
+import { DailyChallengeCategory, MainTab, PersistedAppState, StudyAlarm, StudyGoal, Subject, SubView } from '../types';
 import { getNextAlarmSummary } from '../utils/alarmAudio';
 import { formatHm, formatHms } from '../utils/localStorageState';
 import { ProgressRing, StudyGuardianMascot } from './MascotEmblem';
@@ -15,6 +15,10 @@ interface HomeTabProps {
   onOpenClassSelector: () => void;
   onAddCustomRevision?: (title: string, subject: Subject, time: string) => void;
   onAddAlarm?: (alarm: Omit<StudyAlarm, 'id'>) => void;
+  onToggleDailyChallenge?: (id: string) => void;
+  onOpenChallengeAction?: (category: DailyChallengeCategory) => void;
+  onRequestNotificationPermission?: () => void;
+  onOpenMusicStudio?: () => void;
 }
 
 const SUBJECT_META: { key: Subject; en: string; hi: string; color: string }[] = [
@@ -32,6 +36,10 @@ export function HomeTab({
   onOpenClassSelector,
   onAddCustomRevision,
   onAddAlarm,
+  onToggleDailyChallenge,
+  onOpenChallengeAction,
+  onRequestNotificationPermission,
+  onOpenMusicStudio,
 }: HomeTabProps) {
   const isHindi = state.language === 'hi';
   const activeTrackMeta = EXAM_TRACK_LABELS[state.selectedClassTrack] ?? EXAM_TRACK_LABELS.CLASS_12_BOARD;
@@ -72,6 +80,16 @@ export function HomeTab({
 
   const activeAlarmsCount = state.alarms.filter((a) => a.enabled).length;
   const nextAlarmText = getNextAlarmSummary(state.alarms, isHindi);
+  const dailyChallenges = state.dailyChallenges ?? [];
+  const completedChallengesCount = dailyChallenges.filter((dc) => dc.completed).length;
+  const earnedChallengeXp = dailyChallenges.filter((dc) => dc.completed).reduce((sum, dc) => sum + dc.xpReward, 0);
+  const totalChallengeXp = dailyChallenges.reduce((sum, dc) => sum + dc.xpReward, 0);
+  const challengeProgressPct = dailyChallenges.length > 0 ? Math.round((completedChallengesCount / dailyChallenges.length) * 100) : 0;
+  const canRequestBrowserNotify =
+    state.notificationsEnabled &&
+    typeof Notification !== 'undefined' &&
+    Notification.permission === 'default' &&
+    Boolean(onRequestNotificationPermission);
 
   return (
     <div className="space-y-6">
@@ -178,10 +196,10 @@ export function HomeTab({
           onClick={() => onNavigateTab('practice')}
         />
         <QuickActionTile
-          icon={<BookOpen className="w-5 h-5 text-amber-500" />}
-          title={isHindi ? 'स्टडी प्लानर' : 'Study Planner'}
-          subtitle={activeTrackName}
-          onClick={() => onOpenSubView('planner')}
+          icon={<Music2 className="w-5 h-5 text-cyan-500" />}
+          title={isHindi ? 'स्टडी म्यूज़िक' : 'Study Music'}
+          subtitle={isHindi ? 'लो-फ़ाई व फोकस ध्वनि' : 'Lo-Fi & Focus Sounds'}
+          onClick={() => (onOpenMusicStudio ? onOpenMusicStudio() : onNavigateTab('blocker'))}
         />
         <QuickActionTile
           icon={<AlarmClock className="w-5 h-5 text-cyan-500" />}
@@ -213,6 +231,126 @@ export function HomeTab({
           subtitle={isHindi ? 'अध्याय व अध्ययन समय' : 'Chapters & Hours'}
           onClick={() => onOpenSubView('analytics')}
         />
+      </section>
+
+      {/* Daily AI Challenges Section */}
+      <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0A173B] p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-amber-400/15 text-amber-500 flex items-center justify-center shrink-0">
+              <Trophy className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                {isHindi ? 'आज के डेली AI चैलेंज' : 'Daily AI Challenges'}
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                {isHindi
+                  ? `${completedChallengesCount}/${dailyChallenges.length} पूर्ण · ${earnedChallengeXp}/${totalChallengeXp} XP अर्जित`
+                  : `${completedChallengesCount}/${dailyChallenges.length} completed · ${earnedChallengeXp}/${totalChallengeXp} XP earned today`}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {canRequestBrowserNotify && (
+              <button
+                type="button"
+                onClick={onRequestNotificationPermission}
+                className="min-h-[38px] px-3 rounded-xl border border-amber-400/40 bg-amber-400/10 hover:bg-amber-400/20 text-amber-600 dark:text-amber-300 text-xs font-semibold inline-flex items-center gap-1.5"
+              >
+                <Bell className="w-3.5 h-3.5" />
+                <span>{isHindi ? 'रिमाइंडर नोटिफिकेशन चालू करें' : 'Enable Push Reminders'}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onOpenSubView('analytics')}
+              className="min-h-[38px] px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-cyan-600 dark:text-cyan-400 hover:border-cyan-500/60"
+            >
+              {isHindi ? 'सभी एनालिटिक्स देखें' : 'View Analytics'}
+            </button>
+          </div>
+        </div>
+
+        <div className="h-2 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-amber-400 to-emerald-500 transition-all duration-300"
+            style={{ width: `${challengeProgressPct}%` }}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {dailyChallenges.map((dc) => {
+            const actionLabel =
+              dc.category === 'TUTOR'
+                ? isHindi
+                  ? 'AI गुरु खोलें'
+                  : 'Ask AI Guru'
+                : dc.category === 'FOCUS'
+                ? isHindi
+                  ? 'फोकस शुरू करें'
+                  : 'Start Focus'
+                : dc.category === 'MOCK_TEST'
+                ? isHindi
+                  ? 'टेस्ट दें'
+                  : 'Take Test'
+                : isHindi
+                ? 'रिवीजन देखें'
+                : 'Open Planner';
+
+            return (
+              <div
+                key={dc.id}
+                className={`p-4 rounded-xl border transition-colors flex items-start justify-between gap-3 ${
+                  dc.completed
+                    ? 'border-emerald-500/40 bg-emerald-500/5'
+                    : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#06102B]'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => onToggleDailyChallenge?.(dc.id)}
+                  aria-label={dc.completed ? 'Mark challenge incomplete' : 'Mark challenge complete'}
+                  className="mt-0.5 text-left flex items-start gap-3 min-w-0 flex-1"
+                >
+                  {dc.completed ? (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+                  ) : (
+                    <Circle className="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
+                  )}
+                  <div className="min-w-0">
+                    <p
+                      className={`text-sm font-semibold ${
+                        dc.completed
+                          ? 'line-through text-slate-400 dark:text-slate-500'
+                          : 'text-slate-900 dark:text-white'
+                      }`}
+                    >
+                      {isHindi ? dc.titleHi : dc.titleEn}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                      {isHindi ? dc.descriptionHi : dc.descriptionEn}
+                    </p>
+                    <span className="inline-block mt-1.5 text-[11px] font-mono font-bold text-amber-500 tabular-nums">
+                      +{dc.xpReward} XP
+                    </span>
+                  </div>
+                </button>
+
+                {!dc.completed && onOpenChallengeAction && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenChallengeAction(dc.category)}
+                    className="min-h-[36px] px-3 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-700 dark:text-cyan-300 text-xs font-bold whitespace-nowrap shrink-0"
+                  >
+                    {actionLabel}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </section>
 
       {/* Main 3-Column Content Area */}

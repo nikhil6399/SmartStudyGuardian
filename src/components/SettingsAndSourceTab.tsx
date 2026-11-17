@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Download, HelpCircle, Moon, ShieldCheck, Sun, Trash2, Upload } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { BellRing, Check, Download, Eye, EyeOff, HelpCircle, KeyRound, Moon, ShieldCheck, Sun, Trash2, Upload } from 'lucide-react';
 import { STUDY_LEVEL_OPTIONS } from '../data/jeeCatalog';
 import { PersistedAppState, Subject } from '../types';
+import { maskApiKey } from '../utils/localStorageState';
 
 export function SettingsTab({
   state,
@@ -19,6 +20,27 @@ export function SettingsTab({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState(state.customGeminiApiKey || '');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [keySavedToast, setKeySavedToast] = useState(false);
+
+  useEffect(() => {
+    setApiKeyInput(state.customGeminiApiKey || '');
+  }, [state.customGeminiApiKey]);
+
+  const requestNotificationsIfSupported = () => {
+    if (
+      typeof Notification !== 'undefined' &&
+      Notification.permission === 'default' &&
+      typeof Notification.requestPermission === 'function'
+    ) {
+      try {
+        Promise.resolve(Notification.requestPermission()).catch(() => {});
+      } catch {
+        // Ignore browser/iframe restrictions
+      }
+    }
+  };
 
   const handleExportJson = () => {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
@@ -97,13 +119,20 @@ export function SettingsTab({
               {isHindi ? 'सूचनाएं व टेस्ट सेटिंग्स' : 'Notifications & Study Preferences'}
             </p>
             <label className="flex items-center justify-between min-h-[44px] cursor-pointer">
-              <span className="text-sm">
-                {isHindi ? 'अध्ययन और ब्रेक सूचनाएं (Notifications)' : 'Study & Break Notifications'}
+              <span className="text-sm inline-flex items-center gap-2">
+                <BellRing className="w-4 h-4 text-cyan-500" />
+                <span>
+                  {isHindi ? 'अध्ययन, डेली चैलेंज व ब्रेक सूचनाएं' : 'Study, Daily Challenge & Break Notifications'}
+                </span>
               </span>
               <input
                 type="checkbox"
                 checked={state.notificationsEnabled}
-                onChange={(e) => onUpdateSettings({ notificationsEnabled: e.target.checked })}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  if (checked) requestNotificationsIfSupported();
+                  onUpdateSettings({ notificationsEnabled: checked });
+                }}
                 className="h-5 w-5 accent-cyan-500"
               />
             </label>
@@ -194,41 +223,95 @@ export function SettingsTab({
 
         {/* Gemini API Key Settings (Bring Your Own Key) */}
         <div className="rounded-2xl border border-cyan-500/40 bg-cyan-500/5 dark:bg-[#0A173B] p-6 space-y-4">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-              {isHindi ? 'अपनी Gemini API Key दर्ज करें (Bring Your Own API Key)' : 'Gemini API Key (Bring Your Own Key)'}
-            </h2>
-            <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
-              {isHindi
-                ? 'कोई भी डिफ़ॉल्ट API की उपयोग न हो, इसके लिए छात्र अपनी खुद की Gemini API Key यहाँ सुरक्षित रूप से दर्ज कर सकते हैं।'
-                : 'Enter your personal Gemini API key here so that your own API quota is used and no default developer key is required.'}
-            </p>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white inline-flex items-center gap-2">
+                <KeyRound className="w-4 h-4 text-cyan-500" />
+                <span>{isHindi ? 'कस्टम Gemini API Key' : 'Custom AI API Key'}</span>
+              </h2>
+              <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
+                {isHindi
+                  ? 'अपनी व्यक्तिगत Gemini API Key सुरक्षित रूप से सहेजें। यह केवल आपके डिवाइस पर मास्क रूप में रहती है और AI गुरु व मॉक टेस्ट के लिए उपयोग होती है।'
+                  : 'Enter your personal Gemini API key. It stays locally on your device in masked format and powers AI Guru & Mock Test generation.'}
+              </p>
+            </div>
+            {state.customGeminiApiKey && (
+              <span className="font-mono text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                {maskApiKey(state.customGeminiApiKey)}
+              </span>
+            )}
           </div>
-          <div className="space-y-2">
-            <input
-              type="password"
-              value={state.customGeminiApiKey || ''}
-              onChange={(e) => onUpdateSettings({ customGeminiApiKey: e.target.value.trim() })}
-              placeholder={isHindi ? 'अपनी Gemini API Key यहाँ पेस्ट करें (AIza...)' : 'Paste your Gemini API key (AIza...)'}
-              className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#06102B] text-xs font-mono text-slate-900 dark:text-white"
-            />
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              onUpdateSettings({ customGeminiApiKey: apiKeyInput.trim() });
+              setKeySavedToast(true);
+              setTimeout(() => setKeySavedToast(false), 2000);
+            }}
+            className="space-y-3"
+          >
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  type={showApiKey ? 'text' : 'password'}
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={isHindi ? 'अपनी Gemini API Key यहाँ पेस्ट करें (AIza...)' : 'Paste your Gemini API key (AIza...)'}
+                  className="w-full min-h-[44px] pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-[#06102B] text-xs font-mono text-slate-900 dark:text-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowApiKey((v) => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                  aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
+                >
+                  {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <button
+                type="submit"
+                className="min-h-[44px] px-4 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+              >
+                {keySavedToast ? <Check className="w-4 h-4" /> : null}
+                <span>
+                  {keySavedToast
+                    ? isHindi
+                      ? 'सहेजा गया'
+                      : 'Saved'
+                    : isHindi
+                    ? 'की सेव करें'
+                    : 'Save Key'}
+                </span>
+              </button>
+            </div>
+
             <div className="flex items-center justify-between">
               <span className="text-[11px] text-slate-500 dark:text-slate-400">
                 {state.customGeminiApiKey
-                  ? (isHindi ? '✓ आपकी कस्टम API Key सक्रिय है' : '✓ Custom API key active')
-                  : (isHindi ? 'कोई कस्टम API Key सेट नहीं (डिफ़ॉल्ट उपयोग)' : 'No custom key set (using default)')}
+                  ? isHindi
+                    ? `सक्रिय कस्टम Key (${maskApiKey(state.customGeminiApiKey)})`
+                    : `Custom API key active (${maskApiKey(state.customGeminiApiKey)})`
+                  : isHindi
+                  ? 'कोई कस्टम API Key सेट नहीं (सर्वर की उपयोग)'
+                  : 'No custom key set (using app server default)'}
               </span>
               {state.customGeminiApiKey && (
                 <button
                   type="button"
-                  onClick={() => onUpdateSettings({ customGeminiApiKey: '' })}
+                  onClick={() => {
+                    setApiKeyInput('');
+                    onUpdateSettings({ customGeminiApiKey: '' });
+                  }}
                   className="text-xs font-semibold text-red-600 dark:text-red-400 hover:underline"
                 >
                   {isHindi ? 'की हटाएं' : 'Clear Key'}
                 </button>
               )}
             </div>
-          </div>
+          </form>
         </div>
       </div>
 
