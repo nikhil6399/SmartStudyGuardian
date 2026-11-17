@@ -199,13 +199,14 @@ jobs:
         run: gradle assembleRelease --no-daemon --stacktrace
 
       - name: Cleanup Keystore
-        Id: cleanup
-        If: always()
-        Run: rm -f release-keystore.jks
+        id: cleanup
+        if: always()
+        run: rm -f release-keystore.jks
 
       - name: Upload Release APK Artifact
-        Uses: actions/upload-artifact@v6
-        With:
-          Name: jee-ai-study-guardian-release-apk
-          Path: app/build/outputs/apk/release/*.apk
-          Retention-days: 30
+        uses: actions/upload-artifact@v6
+        if: success()
+        with:
+          name: jee-ai-study-guardian-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 30
