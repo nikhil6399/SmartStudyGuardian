@@ -71,7 +71,8 @@ object AnalyticsCalculator {
         } else {
             JeeContentCatalog.chapters
         }
-        val evaluated = scoped.map { chapter ->
+        val activeChapters = scoped.filter { progressMap.containsKey(it.id) }.ifEmpty { scoped }
+        val evaluated = activeChapters.map { chapter ->
             val prog = progressMap[chapter.id]
             val accuracy = if (prog != null && prog.practiceAttempted > 0) {
                 prog.practiceCorrect * 100f / prog.practiceAttempted
