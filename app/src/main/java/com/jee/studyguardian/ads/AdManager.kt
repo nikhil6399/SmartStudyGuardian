@@ -77,9 +77,9 @@ object AdManager {
     private val pendingUnityBanners = mutableListOf<WeakReference<BannerView>>()
 
     private const val SAMPLE_ADMOB_PREFIX = "ca-app-pub-3940256099942544"
-    private const val UNITY_BANNER_PLACEMENT = "Banner_Android"
-    private const val UNITY_INTERSTITIAL_PLACEMENT = "Interstitial_Android"
-    private const val UNITY_REWARDED_PLACEMENT = "Rewarded_Android"
+    private const val UNITY_BANNER_PLACEMENT = "BP_Banner_Android"
+    private const val UNITY_INTERSTITIAL_PLACEMENT = "BP_Interstitial_Android"
+    private const val UNITY_REWARDED_PLACEMENT = "BP_Rewarded_Android"
 
     private val _consentRequired = MutableStateFlow(false)
     val consentRequired: StateFlow<Boolean> = _consentRequired.asStateFlow()
