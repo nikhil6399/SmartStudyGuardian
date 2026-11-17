@@ -42,6 +42,41 @@ jobs:
           yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
           "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
+      - name: Generate google-services.json
+        shell: bash
+        run: |
+          cat << 'EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "237357970564",
+              "project_id": "smartstudyguadian",
+              "storage_bucket": "smartstudyguadian.firebasestorage.app"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:237357970564:android:df09f5f11798d5770bfed1",
+                  "android_client_info": {
+                    "package_name": "com.studyguardian.ai"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [
+                  {
+                    "current_key": "AIzaSyB8qXBVA5jrv5BkKTaSuGoaotvgjwLPnJI"
+                  }
+                ],
+                "services": {
+                  "appinvite_service": {
+                    "other_platform_oauth_client": []
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -99,6 +134,41 @@ jobs:
           yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
           "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
+      - name: Generate google-services.json
+        shell: bash
+        run: |
+          cat << 'EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "237357970564",
+              "project_id": "smartstudyguadian",
+              "storage_bucket": "smartstudyguadian.firebasestorage.app"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:237357970564:android:df09f5f11798d5770bfed1",
+                  "android_client_info": {
+                    "package_name": "com.studyguardian.ai"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [
+                  {
+                    "current_key": "AIzaSyB8qXBVA5jrv5BkKTaSuGoaotvgjwLPnJI"
+                  }
+                ],
+                "services": {
+                  "appinvite_service": {
+                    "other_platform_oauth_client": []
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -129,12 +199,13 @@ jobs:
         run: gradle assembleRelease --no-daemon --stacktrace
 
       - name: Cleanup Keystore
-        if: always()
-        run: rm -f release-keystore.jks
+        Id: cleanup
+        If: always()
+        Run: rm -f release-keystore.jks
 
       - name: Upload Release APK Artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: jee-ai-study-guardian-release-apk
-          path: app/build/outputs/apk/release/*.apk
-          retention-days: 30
+        Uses: actions/upload-artifact@v6
+        With:
+          Name: jee-ai-study-guardian-release-apk
+          Path: app/build/outputs/apk/release/*.apk
+          Retention-days: 30
