@@ -6,13 +6,15 @@
 -keep class com.jee.studyguardian.blocker.BootReceiver { *; }
 -keep class com.jee.studyguardian.planner.StudyAlarmReceiver { *; }
 
-# ViewModels & WorkManager Reflection Constructors
+# ViewModels, App Startup & WorkManager Reflection Constructors
 -keep class * extends androidx.lifecycle.ViewModel {
     public <init>(...);
 }
 -keep class * extends androidx.work.ListenableWorker {
     public <init>(android.content.Context, androidx.work.WorkerParameters);
 }
+-keep class * extends androidx.startup.Initializer { *; }
+-keep class androidx.work.** { *; }
 -keep class com.jee.studyguardian.viewmodel.** { *; }
 -keep class com.jee.studyguardian.planner.** { *; }
 
@@ -51,10 +53,14 @@
 
 # Google Mobile Ads, Mediation & UMP
 -keep class com.google.android.gms.ads.** { *; }
+-keep class com.google.android.gms.internal.ads.** { *; }
 -keep class com.google.ads.mediation.** { *; }
+-keep class com.google.ads.mediation.unity.** { *; }
 -keep class com.google.android.ump.** { *; }
 
 # Unity Ads SDK
+-keep class com.unity3d.ads.** { *; }
+-keep class com.unity3d.services.** { *; }
 -keep class com.unity3d.** { *; }
 -dontwarn com.unity3d.**
 
