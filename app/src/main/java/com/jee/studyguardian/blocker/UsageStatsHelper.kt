@@ -6,6 +6,7 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Process
 import com.jee.studyguardian.database.BlockedAppEntity
 import com.jee.studyguardian.models.InstalledAppInfo
@@ -16,11 +17,20 @@ object UsageStatsHelper {
     fun hasUsageStatsPermission(context: Context): Boolean {
         return runCatching {
             val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-            val mode = appOps.unsafeCheckOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                Process.myUid(),
-                context.packageName
-            )
+            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                appOps.unsafeCheckOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    Process.myUid(),
+                    context.packageName
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                appOps.checkOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    Process.myUid(),
+                    context.packageName
+                )
+            }
             mode == AppOpsManager.MODE_ALLOWED
         }.getOrDefault(false)
     }
@@ -36,9 +46,14 @@ object UsageStatsHelper {
             var latestTime = 0L
             while (events.hasNextEvent()) {
                 events.getNextEvent(event)
-                val isForegroundEvent = event.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
+                val isForegroundEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    event.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
+                        @Suppress("DEPRECATION")
+                        (event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND)
+                } else {
                     @Suppress("DEPRECATION")
-                    (event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND)
+                    event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND
+                }
                 if (isForegroundEvent && event.timeStamp >= latestTime && !event.packageName.isNullOrBlank()) {
                     latestTime = event.timeStamp
                     latestPkg = event.packageName
@@ -75,6 +90,38 @@ object UsageStatsHelper {
         }.getOrDefault(emptyMap())
     }
 
+    fun getAppLabel(context: Context, packageName: String): String {
+        return runCatching {
+            val pm = context.packageManager
+            val appInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getApplicationInfo(packageName, PackageManager.ApplicationInfoFlags.of(0L))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getApplicationInfo(packageName, 0)
+            }
+            pm.getApplicationLabel(appInfo).toString()
+        }.getOrDefault(packageName)
+    }
+
+    fun getLauncherPackages(context: Context): Set<String> {
+        return runCatching {
+            val pm = context.packageManager
+            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+            }
+            val resolved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.queryIntentActivities(
+                    homeIntent,
+                    PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                pm.queryIntentActivities(homeIntent, PackageManager.MATCH_DEFAULT_ONLY)
+            }
+            resolved.mapNotNull { it.activityInfo?.packageName }.toSet()
+        }.getOrDefault(emptySet())
+    }
+
     fun getInstalledUserApps(
         context: Context,
         blockedApps: List<BlockedAppEntity>
@@ -87,7 +134,15 @@ object UsageStatsHelper {
             val launcherIntent = Intent(Intent.ACTION_MAIN).apply {
                 addCategory(Intent.CATEGORY_LAUNCHER)
             }
-            val resolved = pm.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
+            val resolved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.queryIntentActivities(
+                    launcherIntent,
+                    PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL.toLong())
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                pm.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
+            }
             val ownPackage = context.packageName
 
             resolved

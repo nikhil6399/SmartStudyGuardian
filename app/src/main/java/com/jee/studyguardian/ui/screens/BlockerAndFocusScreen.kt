@@ -6,10 +6,8 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import com.jee.studyguardian.data.UserPreferencesState
 import com.jee.studyguardian.database.FilterLogEntity
 import com.jee.studyguardian.database.FocusSessionEntity
+import com.jee.studyguardian.filters.YouTubeCheckResult
+import com.jee.studyguardian.models.FilterClassificationResult
 import com.jee.studyguardian.models.FilterStrictness
 import com.jee.studyguardian.models.InstalledAppInfo
 import com.jee.studyguardian.models.LanguageMode
@@ -67,7 +67,12 @@ fun BlockerAndFocusScreen(
     onUpdateYouTubeFilter: (Boolean, Boolean, Boolean, String, String) -> Unit,
     onUpdateAiFilter: (Boolean, FilterStrictness, String, String) -> Unit,
     onStartPomodoro: () -> Unit,
-    onPausePomodoro: () -> Unit
+    onPausePomodoro: () -> Unit,
+    aiFilterPreviewResult: FilterClassificationResult? = null,
+    youtubePreviewResult: YouTubeCheckResult? = null,
+    onTestAiClassifier: (String) -> Unit = {},
+    onOverrideAiFilter: (String) -> Unit = {},
+    onTestYouTubeFilter: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val isHindi = prefs.language == LanguageMode.HINDI
@@ -77,6 +82,7 @@ fun BlockerAndFocusScreen(
     var showNotificationRationale by remember { mutableStateOf(false) }
 
     val blockingConfirmedActive = prefs.appBlockerEnabled && permissionStatus.usageStatsGranted
+    val selectedAppsCount = installedApps.count { it.isBlocked }
 
     LaunchedEffect(Unit) {
         onRefreshApps()
@@ -88,7 +94,7 @@ fun BlockerAndFocusScreen(
                 if (isHindi) "फोकस मोड" else "Focus Mode",
                 if (isHindi) "ऐप ब्लॉकर" else "App Blocker",
                 "YouTube",
-                if (isHindi) "सेफ्टी फ़िल्टर" else "Content Filter"
+                if (isHindi) "AI फ़िल्टर" else "Content Filter"
             ).forEachIndexed { idx, title ->
                 Tab(
                     selected = selectedSubTab == idx,
@@ -233,6 +239,15 @@ fun BlockerAndFocusScreen(
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                Text(
+                                    text = if (blockingConfirmedActive) {
+                                        "$selectedAppsCount apps selected · Focus Shield ACTIVE"
+                                    } else {
+                                        "$selectedAppsCount apps selected · Start Study Focus in tab 1 to activate shield"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (blockingConfirmedActive) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.secondary
+                                )
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     OutlinedButton(
                                         onClick = { showUsageRationale = true },
@@ -283,6 +298,21 @@ fun BlockerAndFocusScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
+                            }
+                        }
+                    }
+
+                    val appBlockLogs = filterLogs.filter { it.source == "APP_BLOCKER" }.take(5)
+                    if (appBlockLogs.isNotEmpty()) {
+                        item {
+                            Text(
+                                if (isHindi) "हाल ही में रोके गए ऐप्स" else "Recent App Shield Events",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+                        items(appBlockLogs) { log ->
+                            GuardianCard {
+                                Text("${log.actionTaken}: ${log.summary}", style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }
@@ -349,9 +379,55 @@ fun BlockerAndFocusScreen(
                         }
                     }
 
+                    item {
+                        var sampleYtText by remember { mutableStateOf("") }
+                        GuardianCard {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Test YouTube Video / Topic Filter", style = MaterialTheme.typography.titleMedium)
+                                OutlinedTextField(
+                                    value = sampleYtText,
+                                    onValueChange = { sampleYtText = it },
+                                    label = { Text("Paste video title or #shorts link") },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf(
+                                        "BGMI live gaming vlog",
+                                        "Viral #shorts prank",
+                                        "Rotational Motion JEE Physics"
+                                    ).forEach { preset ->
+                                        FilterChip(
+                                            selected = sampleYtText == preset,
+                                            onClick = {
+                                                sampleYtText = preset
+                                                onTestYouTubeFilter(preset)
+                                            },
+                                            label = { Text(preset) }
+                                        )
+                                    }
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        if (sampleYtText.isNotBlank()) onTestYouTubeFilter(sampleYtText)
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Check Video Safety")
+                                }
+                                youtubePreviewResult?.let { ytResult ->
+                                    Text(
+                                        text = if (ytResult.shouldBlock) "BLOCKED: ${ytResult.reason}" else "ALLOWED: ${ytResult.reason}",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = if (ytResult.shouldBlock) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     items(filterLogs.filter { it.source == "YOUTUBE_FILTER" }.take(8)) { log ->
                         GuardianCard {
-                            Text(log.summary, style = MaterialTheme.typography.bodyMedium)
+                            Text("${log.actionTaken}: ${log.summary}", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
@@ -366,9 +442,9 @@ fun BlockerAndFocusScreen(
 
                         GuardianCard {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("Content Safety Filter", style = MaterialTheme.typography.titleLarge)
+                                Text("AI Content Safety Filter", style = MaterialTheme.typography.titleLarge)
                                 Text(
-                                    "Helps keep distracting and inappropriate content away during study hours.",
+                                    "Automatically shields distracting social, gaming, and unsafe apps during Focus sessions and classifies pasted titles or links on-device.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -413,6 +489,108 @@ fun BlockerAndFocusScreen(
                                 ) {
                                     Text("Save Filter Settings")
                                 }
+                            }
+                        }
+                    }
+
+                    item {
+                        var sampleContent by remember { mutableStateOf("") }
+                        GuardianCard {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("AI Content Analyzer & Block Test", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "Test how AI recognizes apps, titles, or websites and decides whether to block them:",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                OutlinedTextField(
+                                    value = sampleContent,
+                                    onValueChange = { sampleContent = it },
+                                    label = { Text("Enter app name, title, or URL to test") },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf(
+                                        "Instagram Reels",
+                                        "BGMI Tournament",
+                                        "Best casino betting",
+                                        "Gauss Law JEE Physics"
+                                    ).forEach { sample ->
+                                        FilterChip(
+                                            selected = sampleContent == sample,
+                                            onClick = {
+                                                sampleContent = sample
+                                                onTestAiClassifier(sample)
+                                            },
+                                            label = { Text(sample) }
+                                        )
+                                    }
+                                }
+                                Button(
+                                    onClick = {
+                                        if (sampleContent.isNotBlank()) onTestAiClassifier(sampleContent)
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Analyze & Check Block")
+                                }
+
+                                aiFilterPreviewResult?.let { result ->
+                                    GuardianCard {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(
+                                                text = if (result.isFlagged) {
+                                                    "BLOCKED / FLAGGED · ${result.category}"
+                                                } else {
+                                                    "STUDY SAFE · ${result.category}"
+                                                },
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (result.isFlagged) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary
+                                            )
+                                            Text(
+                                                text = result.classificationType,
+                                                style = MaterialTheme.typography.labelMedium
+                                            )
+                                            if (result.matchedKeywords.isNotEmpty()) {
+                                                Text(
+                                                    text = "Matched: ${result.matchedKeywords.joinToString(", ")}",
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
+                                            Text(
+                                                text = result.confidenceNote,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            if (result.isFlagged) {
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        onOverrideAiFilter("${result.category}: ${result.matchedKeywords.joinToString()}")
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Text("Apply Manual Override Once")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    val aiLogs = filterLogs.filter { it.source == "AI_CONTENT_FILTER" }.take(8)
+                    if (aiLogs.isNotEmpty()) {
+                        item {
+                            Text(
+                                if (isHindi) "AI फ़िल्टर ब्लॉक लॉग" else "AI Content Filter Logs",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+                        items(aiLogs) { log ->
+                            GuardianCard {
+                                Text("${log.actionTaken}: ${log.summary}", style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }

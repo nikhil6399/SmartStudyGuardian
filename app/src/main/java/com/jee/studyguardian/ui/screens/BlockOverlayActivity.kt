@@ -1,5 +1,6 @@
 package com.jee.studyguardian.ui.screens
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -30,10 +31,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.jee.studyguardian.application.JeeStudyGuardianApp
+import com.jee.studyguardian.database.FocusSessionEntity
+import com.jee.studyguardian.ui.MainActivity
 import com.jee.studyguardian.ui.components.GuardianCard
 import com.jee.studyguardian.ui.theme.JeeStudyGuardianTheme
 import com.jee.studyguardian.utils.TimeFormatters
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class BlockOverlayActivity : ComponentActivity() {
@@ -107,7 +113,16 @@ class BlockOverlayActivity : ComponentActivity() {
                         }
                         Spacer(modifier = Modifier.height(20.dp))
                         Button(
-                            onClick = { finish() },
+                            onClick = {
+                                val backToStudyIntent = Intent(
+                                    this@BlockOverlayActivity,
+                                    MainActivity::class.java
+                                ).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                }
+                                runCatching { startActivity(backToStudyIntent) }
+                                finish()
+                            },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Keep Studying — Return to Focus")
@@ -116,13 +131,31 @@ class BlockOverlayActivity : ComponentActivity() {
                         OutlinedButton(
                             onClick = {
                                 val app = application as? JeeStudyGuardianApp
-                                app?.let {
-                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                        it.container.preferencesManager.setBlockerFocusState(
+                                app?.let { guardianApp ->
+                                    CoroutineScope(Dispatchers.IO).launch {
+                                        val prefs = guardianApp.container.preferencesManager.preferencesFlow.first()
+                                        val now = System.currentTimeMillis()
+                                        val plannedMs = prefs.focusDurationMinutes * 60_000L
+                                        val remMs = (prefs.focusEndEpochMs - now).coerceAtLeast(0L)
+                                        val actualMin = ((plannedMs - remMs) / 60_000L).toInt().coerceAtLeast(1)
+                                        val blockedCount = guardianApp.container.database.blockedAppDao().getEnabledOnce().size
+                                        guardianApp.container.blockerRepository.logFocusSession(
+                                            FocusSessionEntity(
+                                                plannedMinutes = prefs.focusDurationMinutes,
+                                                actualMinutes = actualMin,
+                                                blockedAppsCount = blockedCount,
+                                                youtubeFilterEnabled = prefs.youtubeFilterEnabled,
+                                                aiFilterEnabled = prefs.aiFilterEnabled,
+                                                status = "EMERGENCY_UNLOCKED",
+                                                startedAtEpochMs = now - actualMin * 60_000L,
+                                                endedAtEpochMs = now
+                                            )
+                                        )
+                                        guardianApp.container.preferencesManager.setBlockerFocusState(
                                             enabled = false,
                                             endEpochMs = 0L,
                                             pausedRemainingMs = 0L,
-                                            durationMinutes = 120
+                                            durationMinutes = prefs.focusDurationMinutes
                                         )
                                     }
                                 }

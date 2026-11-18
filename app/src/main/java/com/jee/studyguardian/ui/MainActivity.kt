@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.jee.studyguardian.ui
 
 import android.Manifest
@@ -142,6 +144,8 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
     val focusRemainingSeconds by viewModel.focusRemainingSeconds.collectAsState()
     val focusSessions by viewModel.focusSessions.collectAsState()
     val filterLogs by viewModel.filterLogs.collectAsState()
+    val aiFilterPreviewResult by viewModel.aiFilterPreviewResult.collectAsState()
+    val youtubePreviewResult by viewModel.youtubePreviewResult.collectAsState()
     val pomodoroState by viewModel.pomodoroState.collectAsState()
     val chapterStrengths by viewModel.chapterStrengths.collectAsState()
     val bannerMessage by viewModel.statusBannerMessage.collectAsState()
@@ -443,6 +447,8 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
                     focusSessions = focusSessions,
                     filterLogs = filterLogs,
                     pomodoroState = pomodoroState,
+                    aiFilterPreviewResult = aiFilterPreviewResult,
+                    youtubePreviewResult = youtubePreviewResult,
                     onRefreshApps = { viewModel.refreshInstalledAppsAndPermissions(context) },
                     onToggleBlockedApp = { app -> viewModel.toggleBlockedApp(app, context) },
                     onStartFocusSession = viewModel::startFocusSession,
@@ -451,6 +457,9 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
                     onStopFocusSession = viewModel::stopFocusSession,
                     onUpdateYouTubeFilter = viewModel::updateYouTubeFilterConfig,
                     onUpdateAiFilter = viewModel::updateAiFilterConfig,
+                    onTestAiClassifier = viewModel::testAiContentClassifier,
+                    onOverrideAiFilter = viewModel::overrideLastFlaggedFilter,
+                    onTestYouTubeFilter = viewModel::testYouTubeFilter,
                     onStartPomodoro = viewModel.pomodoroManager::startOrResume,
                     onPausePomodoro = viewModel.pomodoroManager::pause
                 )

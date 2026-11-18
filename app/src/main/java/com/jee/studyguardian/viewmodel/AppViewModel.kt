@@ -24,6 +24,8 @@ import com.jee.studyguardian.database.StudyGoalEntity
 import com.jee.studyguardian.database.StudyNoteEntity
 import com.jee.studyguardian.database.TimetableSlotEntity
 import com.jee.studyguardian.filters.AiContentFilterEngine
+import com.jee.studyguardian.filters.YouTubeCheckResult
+import com.jee.studyguardian.filters.YouTubeFilterEngine
 import com.jee.studyguardian.firebase.FirebaseAuthUiState
 import com.jee.studyguardian.firebase.FirebaseSyncManager
 import com.jee.studyguardian.models.ChapterStrength
@@ -166,6 +168,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _aiFilterPreviewResult = MutableStateFlow<FilterClassificationResult?>(null)
     val aiFilterPreviewResult: StateFlow<FilterClassificationResult?> = _aiFilterPreviewResult.asStateFlow()
+
+    private val _youtubePreviewResult = MutableStateFlow<YouTubeCheckResult?>(null)
+    val youtubePreviewResult: StateFlow<YouTubeCheckResult?> = _youtubePreviewResult.asStateFlow()
 
     private val _statusBannerMessage = MutableStateFlow<String?>(null)
     val statusBannerMessage: StateFlow<String?> = _statusBannerMessage.asStateFlow()
@@ -665,17 +670,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun testYouTubeFilter(sampleText: String) {
+        val prefs = preferences.value
+        val normalized = sampleText.trim()
+        val viewIds = if (normalized.contains("#shorts", ignoreCase = true) ||
+            normalized.contains("/shorts", ignoreCase = true) ||
+            normalized.contains("shorts", ignoreCase = true)
+        ) {
+            listOf("com.google.android.youtube:id/reel_watch_fragment")
+        } else {
+            listOf("com.google.android.youtube:id/watch_player")
+        }
+        val result = YouTubeFilterEngine.evaluateYouTubeWindow(
+            filterEnabled = prefs.youtubeFilterEnabled,
+            blockWholeApp = prefs.youtubeBlockWholeApp,
+            blockShorts = prefs.youtubeBlockShorts,
+            blockedKeywordsCsv = prefs.youtubeBlockedKeywords,
+            visibleScreenText = normalized,
+            visibleViewIds = viewIds
+        )
+        _youtubePreviewResult.value = result
+        if (result.shouldBlock) {
+            viewModelScope.launch {
+                container.blockerRepository.logFilterEvent(
+                    source = "YOUTUBE_FILTER",
+                    summary = "${result.reason}: \"${normalized.take(60)}\"",
+                    rule = result.matchedRule,
+                    action = "BLOCKED"
+                )
+            }
+        }
+    }
+
     private fun startFocusTicker() {
         focusTickerJob?.cancel()
         focusTickerJob = viewModelScope.launch {
             while (true) {
                 val prefs = preferences.value
                 val now = System.currentTimeMillis()
-                _focusRemainingSeconds.value = when {
-                    !prefs.appBlockerEnabled -> 0L
-                    prefs.focusPausedRemainingMs > 0L -> prefs.focusPausedRemainingMs / 1000L
-                    prefs.focusEndEpochMs > now -> (prefs.focusEndEpochMs - now) / 1000L
-                    else -> 0L
+                if (prefs.appBlockerEnabled &&
+                    prefs.focusPausedRemainingMs == 0L &&
+                    prefs.focusEndEpochMs in 1L..now
+                ) {
+                    _focusRemainingSeconds.value = 0L
+                    stopFocusSession(emergencyUnlocked = false)
+                } else {
+                    _focusRemainingSeconds.value = when {
+                        !prefs.appBlockerEnabled -> 0L
+                        prefs.focusPausedRemainingMs > 0L -> prefs.focusPausedRemainingMs / 1000L
+                        prefs.focusEndEpochMs > now -> (prefs.focusEndEpochMs - now) / 1000L
+                        else -> 0L
+                    }
                 }
                 delay(1000L)
             }
@@ -803,30 +848,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         FirebaseSyncManager.signOut()
         _authErrorMessage.value = null
         _statusBannerMessage.value = "Signed out from Firebase."
-    }
-
-    fun deleteAccountAndData() = viewModelScope.launch {
-        _authActionLoading.value = true
-        val result = FirebaseSyncManager.deleteAccountAndCloudData()
-        _authActionLoading.value = false
-        result.fold(
-            onSuccess = {
-                lastHydratedUid = null
-                container.backupRepository.clearAllLocalData()
-                _statusBannerMessage.value = "Account and study data permanently deleted."
-            },
-            onFailure = { err ->
-                val raw = err.localizedMessage.orEmpty()
-                val msg = if (raw.contains("recent login", ignoreCase = true) ||
-                    raw.contains("CREDENTIAL_TOO_OLD", ignoreCase = true)
-                ) {
-                    "For security, please Sign Out and Sign In again before deleting your account."
-                } else {
-                    FirebaseSyncManager.friendlyAuthError(err)
-                }
-                _statusBannerMessage.value = msg
-            }
-        )
     }
 
     fun deleteAccountAndData() = viewModelScope.launch {

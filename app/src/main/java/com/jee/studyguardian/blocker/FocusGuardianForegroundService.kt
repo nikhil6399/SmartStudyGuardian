@@ -8,14 +8,17 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.jee.studyguardian.R
 import com.jee.studyguardian.application.JeeStudyGuardianApp
 import com.jee.studyguardian.database.FilterLogEntity
+import com.jee.studyguardian.filters.AiContentFilterEngine
 import com.jee.studyguardian.filters.YouTubeFilterEngine
 import com.jee.studyguardian.ui.MainActivity
 import com.jee.studyguardian.ui.screens.BlockOverlayActivity
@@ -40,13 +43,23 @@ class FocusGuardianForegroundService : Service() {
         when (intent?.action) {
             ACTION_STOP -> {
                 timerJob?.cancel()
-                stopForeground(STOP_FOREGROUND_REMOVE)
+                ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
             }
             else -> {
                 val endEpochMs = intent?.getLongExtra(EXTRA_END_EPOCH_MS, 0L) ?: 0L
-                startForeground(NOTIFICATION_ID, buildNotification("Study Focus Shield Active"))
+                val fgType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                } else {
+                    0
+                }
+                ServiceCompat.startForeground(
+                    this,
+                    NOTIFICATION_ID,
+                    buildNotification("Study Focus Shield Active"),
+                    fgType
+                )
                 startCountdownNotificationLoop(endEpochMs)
             }
         }
@@ -68,7 +81,10 @@ class FocusGuardianForegroundService : Service() {
                 }
                 nm.notify(NOTIFICATION_ID, buildNotification(statusText))
                 if (endEpochMs > 0L && remainingSec == 0L) {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    ServiceCompat.stopForeground(
+                        this@FocusGuardianForegroundService,
+                        ServiceCompat.STOP_FOREGROUND_REMOVE
+                    )
                     stopSelf()
                     break
                 }
@@ -85,7 +101,15 @@ class FocusGuardianForegroundService : Service() {
     private suspend fun checkForegroundDistraction(now: Long, endEpochMs: Long) {
         if (now - lastAlertEpochMs < 4000L) return
         val pkg = UsageStatsHelper.getCurrentForegroundPackage(this) ?: return
-        if (pkg == packageName || pkg == "com.android.systemui") return
+        if (pkg == packageName ||
+            pkg == "com.android.systemui" ||
+            pkg == "com.android.settings" ||
+            pkg == "com.android.packageinstaller" ||
+            pkg == "com.google.android.packageinstaller"
+        ) {
+            return
+        }
+        if (pkg in UsageStatsHelper.getLauncherPackages(this)) return
 
         val app = application as? JeeStudyGuardianApp ?: return
         val container = app.container
@@ -104,24 +128,52 @@ class FocusGuardianForegroundService : Service() {
             prefs.youtubeFilterEnabled &&
             prefs.youtubeBlockWholeApp
 
-        if (matchedApp == null && !isBlockedYouTube) return
+        val appLabel = UsageStatsHelper.getAppLabel(this, pkg)
+        val aiCheck = if (matchedApp == null &&
+            !isBlockedYouTube &&
+            pkg != YouTubeFilterEngine.YOUTUBE_PACKAGE &&
+            prefs.aiFilterEnabled
+        ) {
+            AiContentFilterEngine.classifyAppContext(
+                appLabel = appLabel,
+                packageName = pkg,
+                enabled = prefs.aiFilterEnabled,
+                strictness = prefs.aiFilterStrictness,
+                customKeywordsCsv = prefs.aiFilterKeywords,
+                enabledCategoriesCsv = prefs.aiFilterCategories
+            )
+        } else {
+            null
+        }
+
+        val isAiBlocked = aiCheck?.isFlagged == true
+        if (matchedApp == null && !isBlockedYouTube && !isAiBlocked) return
 
         lastAlertEpochMs = now
-        val label = matchedApp?.appName ?: "YouTube"
-        val reason = if (isBlockedYouTube) {
-            "Whole-app YouTube blocking is enabled for your Study Focus session."
-        } else {
-            "Study Focus Mode is active. Stay locked in on your study goal!"
+        val label = matchedApp?.appName ?: if (isBlockedYouTube) "YouTube" else appLabel
+        val reason = when {
+            isBlockedYouTube -> "Whole-app YouTube blocking is enabled for your Study Focus session."
+            isAiBlocked -> "AI Content Filter detected ${aiCheck?.category} ($appLabel). Stay focused on JEE study!"
+            else -> "Study Focus Mode is active. Stay locked in on your study goal!"
         }
 
         if (matchedApp != null) {
             container.database.blockedAppDao().incrementBlockCount(pkg)
         }
+        val logSource = when {
+            isBlockedYouTube -> "YOUTUBE_FILTER"
+            isAiBlocked -> "AI_CONTENT_FILTER"
+            else -> "APP_BLOCKER"
+        }
+        val logSummary = when {
+            isAiBlocked -> "AI Shield blocked $label (${aiCheck?.matchedKeywords?.joinToString().orEmpty()})"
+            else -> "Focus reminder triggered for $label"
+        }
         container.database.filterLogDao().insert(
             FilterLogEntity(
-                source = if (isBlockedYouTube) "YOUTUBE_FILTER" else "APP_BLOCKER",
-                summary = "Focus reminder triggered for $label",
-                matchedRule = pkg,
+                source = logSource,
+                summary = logSummary,
+                matchedRule = if (isAiBlocked) (aiCheck?.classificationType ?: pkg) else pkg,
                 actionTaken = "BLOCKED",
                 timestampEpochMs = now
             )
@@ -211,10 +263,8 @@ class FocusGuardianForegroundService : Service() {
 
         fun stop(context: Context) {
             runCatching {
-                val intent = Intent(context, FocusGuardianForegroundService::class.java).apply {
-                    action = ACTION_STOP
-                }
-                context.startService(intent)
+                val intent = Intent(context, FocusGuardianForegroundService::class.java)
+                context.stopService(intent)
             }
         }
     }

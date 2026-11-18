@@ -43,6 +43,48 @@ class FilterEnginesTest {
     }
 
     @Test
+    fun aiFilter_blocksDistractingSocialAndGamingAppsInBalancedMode() {
+        val ig = AiContentFilterEngine.classifyAppContext(
+            appLabel = "Instagram",
+            packageName = "com.instagram.android",
+            enabled = true,
+            strictness = FilterStrictness.BALANCED,
+            customKeywordsCsv = "reel,gambling,nsfw",
+            enabledCategoriesCsv = "Inappropriate Content,Social Distractions,Gaming & Betting"
+        )
+        assertTrue(ig.isFlagged)
+
+        val bgmi = AiContentFilterEngine.classifyAppContext(
+            appLabel = "Battlegrounds Mobile India",
+            packageName = "com.pubg.imobile",
+            enabled = true,
+            strictness = FilterStrictness.BALANCED,
+            customKeywordsCsv = "reel,gambling,nsfw",
+            enabledCategoriesCsv = "Inappropriate Content,Social Distractions,Gaming & Betting"
+        )
+        assertTrue(bgmi.isFlagged)
+
+        val notes = AiContentFilterEngine.classifyAppContext(
+            appLabel = "NCERT Physics Notes",
+            packageName = "com.ncert.physics.notes",
+            enabled = true,
+            strictness = FilterStrictness.BALANCED,
+            customKeywordsCsv = "reel,gambling,nsfw",
+            enabledCategoriesCsv = "Inappropriate Content,Social Distractions,Gaming & Betting"
+        )
+        assertFalse(notes.isFlagged)
+
+        val disabled = AiContentFilterEngine.classifyText(
+            text = "Instagram",
+            enabled = false,
+            strictness = FilterStrictness.STRICT,
+            customKeywordsCsv = "",
+            enabledCategoriesCsv = "Social Distractions"
+        )
+        assertFalse(disabled.isFlagged)
+    }
+
+    @Test
     fun youtubeFilter_detectsShortsViewIdAndKeywords() {
         val shortsCheck = YouTubeFilterEngine.evaluateYouTubeWindow(
             filterEnabled = true,

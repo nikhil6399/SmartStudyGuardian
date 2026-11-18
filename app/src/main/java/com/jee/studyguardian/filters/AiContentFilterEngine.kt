@@ -8,7 +8,7 @@ import com.jee.studyguardian.models.FilterStrictness
  *
  * Explicitly distinguishes:
  * 1. Inappropriate / unsafe content classification (keyword + phrase scoring).
- * 2. Distracting off-study content classification (gaming, reels, celebrity gossip).
+ * 2. Distracting off-study content classification (social media, OTT reels, gaming, celebrity gossip).
  * 3. AI-generated text pattern heuristics (statistical repetition & boilerplate cues —
  *    explicitly disclosed as probabilistic heuristics, NEVER claimed as 100% AI detection).
  *
@@ -20,9 +20,20 @@ object AiContentFilterEngine {
         "nsfw", "gambling", "betting", "casino", "explicit", "adult", "porn", "lottery", "stake"
     )
 
+    private val socialEntertainmentLexicon = setOf(
+        "instagram", "snapchat", "facebook", "tiktok", "reddit", "threads", "pinterest",
+        "netflix", "hotstar", "primevideo", "jiocinema", "mxplayer", "twitch", "discord",
+        "moj", "josh", "sharechat", "tinder", "bumble"
+    )
+
+    private val gamingBettingLexicon = setOf(
+        "pubg", "bgmi", "freefire", "codm", "valorant", "roblox", "minecraft",
+        "ludo", "rummy", "dream11", "mpl", "my11circle", "winzo", "zupee"
+    )
+
     private val distractingLexicon = setOf(
         "reel", "reels", "shorts", "prank", "roast", "meme", "memes", "gossip",
-        "spoiler", "trailer", "clickbait", "giveaway", "celebrity", "pubg", "bgmi", "freefire"
+        "spoiler", "trailer", "clickbait", "giveaway", "celebrity", "gaming", "vlog"
     )
 
     private val aiBoilerplatePhrases = listOf(
@@ -32,6 +43,28 @@ object AiContentFilterEngine {
         "let's embark on a journey",
         "a testament to the multifaceted"
     )
+
+    fun classifyAppContext(
+        appLabel: String,
+        packageName: String,
+        enabled: Boolean,
+        strictness: FilterStrictness,
+        customKeywordsCsv: String,
+        enabledCategoriesCsv: String
+    ): FilterClassificationResult {
+        val compactPkg = packageName
+            .lowercase()
+            .replace(".", " ")
+            .replace("_", " ")
+        val combinedInput = "$appLabel $compactPkg"
+        return classifyText(
+            text = combinedInput,
+            enabled = enabled,
+            strictness = strictness,
+            customKeywordsCsv = customKeywordsCsv,
+            enabledCategoriesCsv = enabledCategoriesCsv
+        )
+    }
 
     fun classifyText(
         text: String,
@@ -57,15 +90,45 @@ object AiContentFilterEngine {
             .filter { it.length >= 2 }
 
         val enabledCategories = enabledCategoriesCsv.lowercase()
+        val allowInappropriate = enabledCategories.isBlank() || enabledCategories.contains("inappropriate")
+        val allowSocial = enabledCategories.isBlank() ||
+            enabledCategories.contains("social") ||
+            enabledCategories.contains("distraction")
+        val allowGaming = enabledCategories.isBlank() ||
+            enabledCategories.contains("gaming") ||
+            enabledCategories.contains("betting") ||
+            enabledCategories.contains("distraction")
 
-        val inappropriateHits = inappropriateLexicon.filter { it in tokens || normalized.contains(it) }
-        val distractingHits = distractingLexicon.filter { it in tokens || normalized.contains(it) }
+        val inappropriateHits = if (allowInappropriate) {
+            inappropriateLexicon.filter { it in tokens || normalized.contains(it) }
+        } else {
+            emptyList()
+        }
+        val socialHits = if (allowSocial) {
+            socialEntertainmentLexicon.filter { it in tokens || normalized.contains(it) }
+        } else {
+            emptyList()
+        }
+        val gamingHits = if (allowGaming) {
+            gamingBettingLexicon.filter { it in tokens || normalized.contains(it) }
+        } else {
+            emptyList()
+        }
+        val distractingHits = if (allowSocial || allowGaming) {
+            distractingLexicon.filter { it in tokens || normalized.contains(it) }
+        } else {
+            emptyList()
+        }
         val customHits = customKeywords.filter { normalized.contains(it) }
         val aiPatternHits = aiBoilerplatePhrases.filter { normalized.contains(it) }
 
-        val combinedScore = inappropriateHits.size * 2 + distractingHits.size + customHits.size * 2
+        val combinedScore = inappropriateHits.size * 2 +
+            socialHits.size * 2 +
+            gamingHits.size * 2 +
+            distractingHits.size +
+            customHits.size * 2
 
-        if (inappropriateHits.isNotEmpty() && enabledCategories.contains("inappropriate")) {
+        if (inappropriateHits.isNotEmpty()) {
             return FilterClassificationResult(
                 isFlagged = true,
                 category = "Inappropriate Content",
@@ -76,10 +139,17 @@ object AiContentFilterEngine {
         }
 
         if (combinedScore >= strictness.threshold) {
+            val allDistractionHits = (socialHits + gamingHits + distractingHits + customHits).distinct()
+            val resolvedCategory = when {
+                customHits.isNotEmpty() -> "Custom Blocked Rule"
+                gamingHits.isNotEmpty() -> "Gaming & Betting"
+                socialHits.isNotEmpty() -> "Social Distractions"
+                else -> "Study Distraction"
+            }
             return FilterClassificationResult(
                 isFlagged = true,
-                category = if (customHits.isNotEmpty()) "Custom Blocked Rule" else "Study Distraction",
-                matchedKeywords = (distractingHits + customHits).distinct(),
+                category = resolvedCategory,
+                matchedKeywords = allDistractionHits,
                 confidenceNote = "Triggered at ${strictness.label} strictness (score $combinedScore >= ${strictness.threshold})",
                 classificationType = "Distracting Content Classification"
             )
