@@ -2,16 +2,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Network access for AI Tutor backend -->
+    <!-- Network access for Firebase & AI Tutor backend -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
-    <!-- Explicit user-consented notification & study alarm permissions -->
+    <!-- Explicit user-consented notification permission -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
-    <!-- Explicit user-consented Usage Stats permission for daily app usage analytics & fallback detection -->
+    <!-- Explicit user-consented Usage Stats permission for daily app usage analytics & Focus Shield -->
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
@@ -21,11 +20,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- Package visibility: allows user to choose installed distracting apps to block -->
-    <uses-permission
-        android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission" />
-
+    <!-- Scoped launcher package visibility without QUERY_ALL_PACKAGES -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -69,20 +64,6 @@
             android:exported="false"
             android:launchMode="singleTop"
             android:theme="@style/Theme.JeeStudyGuardian" />
-
-        <!-- Transparent, user-consented AccessibilityService for App Blocker & optional YouTube distraction filter -->
-        <service
-            android:name=".blocker.GuardianAccessibilityService"
-            android:exported="false"
-            android:label="@string/accessibility_service_label"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_service_config" />
-        </service>
 
         <!-- Visible foreground service for Focus Mode / Pomodoro sessions -->
         <service

@@ -1,6 +1,9 @@
 package com.jee.studyguardian.ui.components
 
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.widget.FrameLayout
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,7 +16,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Security
@@ -68,7 +73,7 @@ fun SubjectProgressRow(
     total: Int,
     accuracyPercent: Float
 ) {
-    val fraction = if (total > 0) completed.toFloat() / total else 0f
+    val fraction = if (total > 0) (completed.toFloat() / total).coerceIn(0f, 1f) else 0f
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -121,7 +126,10 @@ fun ClassSelectionDialog(
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text(
                     if (isHindi) "आपके चयन के अनुसार डैशबोर्ड, AI गुरु, पाठ्यक्रम और मॉक टेस्ट अपने आप सेट हो जाएंगे।"
                     else "Your Dashboard, AI Tutor, Syllabus, and Mock Tests will adapt automatically.",
@@ -189,13 +197,19 @@ fun PermissionRationaleDialog(
     )
 }
 
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 @Composable
 fun AdaptiveStudyBannerAd(
     personalizedAdsEnabled: Boolean,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val activity = context as? Activity ?: return
+    val activity = context.findActivity() ?: return
     val widthDp = (LocalConfiguration.current.screenWidthDp - 32).coerceAtLeast(320)
 
     GuardianCard(modifier = modifier) {
@@ -212,12 +226,14 @@ fun AdaptiveStudyBannerAd(
             key(personalizedAdsEnabled) {
                 AndroidView(
                     modifier = Modifier.fillMaxWidth(),
-                    factory = {
-                        AdManager.createBannerContainerWithFallback(
-                            activity = activity,
-                            widthDp = widthDp,
-                            personalizedAdsEnabled = personalizedAdsEnabled
-                        )
+                    factory = { ctx ->
+                        runCatching {
+                            AdManager.createBannerContainerWithFallback(
+                                activity = activity,
+                                widthDp = widthDp,
+                                personalizedAdsEnabled = personalizedAdsEnabled
+                            )
+                        }.getOrElse { FrameLayout(ctx) }
                     }
                 )
             }

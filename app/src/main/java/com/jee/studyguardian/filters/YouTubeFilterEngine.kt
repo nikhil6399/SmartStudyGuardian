@@ -9,13 +9,11 @@ data class YouTubeCheckResult(
 /**
  * Honest YouTube Distraction Control Engine.
  *
- * Technical Limitation Disclosure:
- * Android does not provide a public API to inspect encrypted network streams or full internal
- * recommendation feeds inside the official YouTube app. When the user explicitly enables
- * Accessibility support, GuardianAccessibilityService can inspect visible window view IDs
- * and visible screen titles/labels strictly on-device to detect YouTube Shorts player views
- * or user-configured distracting keywords. For guaranteed zero-distraction blocking,
- * users can enable "Block Entire YouTube App" during active Focus Sessions.
+ * Technical Transparency:
+ * Android does not provide a public API to inspect encrypted network streams or internal
+ * recommendation feeds inside the official YouTube app. During active Focus Sessions with
+ * Usage Access enabled, FocusGuardianForegroundService triggers whole-app YouTube shielding
+ * whenever "Block YouTube During Focus" is active, and evaluates study titles/keywords on-device.
  */
 object YouTubeFilterEngine {
 

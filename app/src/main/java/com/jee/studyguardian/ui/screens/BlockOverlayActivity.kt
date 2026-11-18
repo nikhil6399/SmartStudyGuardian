@@ -126,6 +126,7 @@ class BlockOverlayActivity : ComponentActivity() {
                                         )
                                     }
                                 }
+                                com.jee.studyguardian.blocker.FocusGuardianForegroundService.stop(applicationContext)
                                 finish()
                             },
                             modifier = Modifier.fillMaxWidth()

@@ -20,10 +20,12 @@ class BootReceiver : BroadcastReceiver() {
                 val prefs = app.container.preferencesManager.preferencesFlow.first()
                 val now = System.currentTimeMillis()
                 if (prefs.appBlockerEnabled && prefs.focusPausedRemainingMs == 0L && prefs.focusEndEpochMs > now) {
-                    FocusGuardianForegroundService.start(context, prefs.focusEndEpochMs)
+                    runCatching { FocusGuardianForegroundService.start(context, prefs.focusEndEpochMs) }
                 }
                 val alarms = app.container.database.studyAlarmDao().getEnabledOnce()
-                alarms.forEach { StudyAlarmScheduler.schedule(context, it) }
+                alarms.forEach { runCatching { StudyAlarmScheduler.schedule(context, it) } }
+            } catch (_: Throwable) {
+                // Safe no-op if OS restricts background start on boot
             } finally {
                 pendingResult.finish()
             }

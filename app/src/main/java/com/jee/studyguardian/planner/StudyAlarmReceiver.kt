@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.RingtoneManager
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -43,23 +44,26 @@ class StudyAlarmReceiver : BroadcastReceiver() {
         val hour12 = if (hour % 12 == 0) 12 else hour % 12
         val formattedTime = String.format(Locale.US, "%02d:%02d %s", hour12, minute, period)
 
-        val canPost = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.POST_NOTIFICATIONS
-        ) == PackageManager.PERMISSION_GRANTED
+        val canPost = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
 
         if (canPost) {
-            val notification = NotificationCompat.Builder(context, JeeStudyGuardianApp.CHANNEL_REMINDERS)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("Study Alarm · $formattedTime")
-                .setContentText("$label ($subject)")
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setSound(alarmSound)
-                .setAutoCancel(true)
-                .setContentIntent(contentPendingIntent)
-                .build()
-            NotificationManagerCompat.from(context).notify((3000 + alarmId).toInt(), notification)
+            runCatching {
+                val notification = NotificationCompat.Builder(context, JeeStudyGuardianApp.CHANNEL_REMINDERS)
+                    .setSmallIcon(R.drawable.ic_launcher_foreground)
+                    .setContentTitle("Study Alarm · $formattedTime")
+                    .setContentText("$label ($subject)")
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setCategory(NotificationCompat.CATEGORY_ALARM)
+                    .setSound(alarmSound)
+                    .setAutoCancel(true)
+                    .setContentIntent(contentPendingIntent)
+                    .build()
+                NotificationManagerCompat.from(context).notify((3000 + alarmId).toInt(), notification)
+            }
         }
 
         if (alarmId > 0L) {

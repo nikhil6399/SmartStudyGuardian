@@ -42,6 +42,7 @@ import com.jee.studyguardian.planner.PomodoroPhase
 import com.jee.studyguardian.planner.PomodoroTimerManager
 import com.jee.studyguardian.planner.PomodoroUiState
 import com.jee.studyguardian.planner.StudyAlarmScheduler
+import androidx.core.app.NotificationManagerCompat
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -75,7 +76,6 @@ data class TutorUiState(
 
 data class BlockerPermissionStatus(
     val usageStatsGranted: Boolean = false,
-    val accessibilityGranted: Boolean = false,
     val notificationsGranted: Boolean = true
 )
 
@@ -510,10 +510,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val blocked = container.database.blockedAppDao().getAllOnce()
             val apps = UsageStatsHelper.getInstalledUserApps(context, blocked)
             _installedApps.value = apps
+            val notifEnabled = runCatching {
+                NotificationManagerCompat.from(context).areNotificationsEnabled()
+            }.getOrDefault(true)
             _permissionStatus.value = BlockerPermissionStatus(
                 usageStatsGranted = UsageStatsHelper.hasUsageStatsPermission(context),
-                accessibilityGranted = UsageStatsHelper.isAccessibilityServiceEnabled(context),
-                notificationsGranted = true
+                notificationsGranted = notifEnabled
             )
         }
     }
@@ -801,6 +803,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         FirebaseSyncManager.signOut()
         _authErrorMessage.value = null
         _statusBannerMessage.value = "Signed out from Firebase."
+    }
+
+    fun deleteAccountAndData() = viewModelScope.launch {
+        _authActionLoading.value = true
+        val result = FirebaseSyncManager.deleteAccountAndCloudData()
+        _authActionLoading.value = false
+        result.fold(
+            onSuccess = {
+                lastHydratedUid = null
+                container.backupRepository.clearAllLocalData()
+                _statusBannerMessage.value = "Account and study data permanently deleted."
+            },
+            onFailure = { err ->
+                val raw = err.localizedMessage.orEmpty()
+                val msg = if (raw.contains("recent login", ignoreCase = true) ||
+                    raw.contains("CREDENTIAL_TOO_OLD", ignoreCase = true)
+                ) {
+                    "For security, please Sign Out and Sign In again before deleting your account."
+                } else {
+                    FirebaseSyncManager.friendlyAuthError(err)
+                }
+                _statusBannerMessage.value = msg
+            }
+        )
+    }
+
+    fun deleteAccountAndData() = viewModelScope.launch {
+        _authActionLoading.value = true
+        val result = FirebaseSyncManager.deleteAccountAndCloudData()
+        _authActionLoading.value = false
+        result.fold(
+            onSuccess = {
+                lastHydratedUid = null
+                container.backupRepository.clearAllLocalData()
+                _statusBannerMessage.value = "Account and study data permanently deleted."
+            },
+            onFailure = { err ->
+                val raw = err.localizedMessage.orEmpty()
+                val msg = if (raw.contains("recent login", ignoreCase = true) ||
+                    raw.contains("CREDENTIAL_TOO_OLD", ignoreCase = true)
+                ) {
+                    "For security, please Sign Out and Sign In again before deleting your account."
+                } else {
+                    FirebaseSyncManager.friendlyAuthError(err)
+                }
+                _statusBannerMessage.value = msg
+            }
+        )
     }
 
     private suspend fun hydrateAndSyncCloudProfile() {

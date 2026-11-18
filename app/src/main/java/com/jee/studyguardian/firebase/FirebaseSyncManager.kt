@@ -204,6 +204,35 @@ object FirebaseSyncManager {
         }
     }
 
+    suspend fun deleteAccountAndCloudData(): Result<Unit> {
+        return try {
+            val auth = FirebaseAuth.getInstance()
+            val user = auth.currentUser
+                ?: return Result.failure(IllegalStateException("Not signed in."))
+            val safeUid = sanitizeId(user.uid)
+            val db = firestoreOrNull()
+            if (db != null) {
+                runCatching {
+                    val mockTests = db.collection("users").document(safeUid)
+                        .collection("mockTests").get().await()
+                    mockTests.documents.forEach { doc -> doc.reference.delete().await() }
+                }
+                runCatching {
+                    db.collection("users").document(safeUid)
+                        .collection("studyState").document("current").delete().await()
+                }
+                runCatching {
+                    db.collection("users").document(safeUid).delete().await()
+                }
+            }
+            user.delete().await()
+            _authState.value = FirebaseAuthUiState(isAuthInitialized = true, isSignedIn = false)
+            Result.success(Unit)
+        } catch (t: Throwable) {
+            Result.failure(t)
+        }
+    }
+
     private suspend fun ensureUserProfileDocument(
         db: FirebaseFirestore,
         user: FirebaseUser,

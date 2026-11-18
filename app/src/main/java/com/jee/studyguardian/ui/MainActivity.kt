@@ -1,11 +1,17 @@
 package com.jee.studyguardian.ui
 
+import android.Manifest
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.core.content.ContextCompat
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
@@ -57,6 +63,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.jee.studyguardian.ads.AdManager
+import com.jee.studyguardian.models.LanguageMode
 import com.jee.studyguardian.models.MockTestConfig
 import com.jee.studyguardian.models.ThemeMode
 import com.jee.studyguardian.navigation.BottomTab
@@ -98,6 +105,18 @@ class MainActivity : FragmentActivity() {
     }
 }
 
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+private tailrec fun Context.findFragmentActivity(): FragmentActivity? = when (this) {
+    is FragmentActivity -> this
+    is ContextWrapper -> baseContext.findFragmentActivity()
+    else -> null
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
@@ -136,8 +155,13 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
     var autoPromptedBiometric by remember { mutableStateOf(false) }
     var biometricErrorMessage by remember { mutableStateOf<String?>(null) }
 
+    var hasAskedNotificationPermission by rememberSaveable { mutableStateOf(false) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
     LaunchedEffect(Unit) {
-        (context as? Activity)?.let { act ->
+        context.findActivity()?.let { act ->
             AdManager.gatherConsentAndInitialize(act, prefs.ageAppropriateAdsOnly)
         }
     }
@@ -146,11 +170,29 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
         AdManager.configureAgeAppropriateRequestConfig(prefs.ageAppropriateAdsOnly)
     }
 
+    LaunchedEffect(authState.isSignedIn) {
+        if (authState.isSignedIn &&
+            !hasAskedNotificationPermission &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+        ) {
+            hasAskedNotificationPermission = true
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                runCatching {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+        }
+    }
+
     val isLocked = authState.isSignedIn && prefs.biometricLockEnabled && !hasPassedSessionUnlock
     LaunchedEffect(isLocked) {
         if (isLocked && !autoPromptedBiometric) {
             autoPromptedBiometric = true
-            (context as? FragmentActivity)?.let { fragActivity ->
+            context.findFragmentActivity()?.let { fragActivity ->
                 BiometricAuthHelper.authenticate(
                     activity = fragActivity,
                     onSuccess = {
@@ -232,12 +274,16 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
                     onClearError = viewModel::clearAuthError,
                     onChangeLanguage = viewModel::setLanguage,
                     onSignInGoogle = {
-                        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                            .requestIdToken(BuildConfig.WEB_CLIENT_ID)
-                            .requestEmail()
-                            .build()
-                        val client = GoogleSignIn.getClient(context, gso)
-                        googleSignInLauncher.launch(client.signInIntent)
+                        try {
+                            val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                                .requestIdToken(BuildConfig.WEB_CLIENT_ID)
+                                .requestEmail()
+                                .build()
+                            val client = GoogleSignIn.getClient(context, gso)
+                            googleSignInLauncher.launch(client.signInIntent)
+                        } catch (t: Throwable) {
+                            viewModel.setAuthError("Google Sign-In unavailable on this device: ${t.localizedMessage ?: "Play Services error"}")
+                        }
                     },
                     onSignInEmail = viewModel::signInWithEmail,
                     onRegisterEmail = viewModel::registerWithEmail,
@@ -342,7 +388,7 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
                     onOpenClassSelector = { showClassDialog = true },
                     onToggleGoal = viewModel::toggleGoal,
                     onWatchRewardedAd = {
-                        (context as? Activity)?.let { act ->
+                        context.findActivity()?.let { act ->
                             AdManager.showRewardedAd(
                                 activity = act,
                                 onRewardEarned = { viewModel.awardBonusStudyXp(25) },
@@ -417,15 +463,18 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
                     testHistory = testHistory,
                     onSignInEmail = viewModel::signInWithEmail,
                     onRegisterEmail = viewModel::registerWithEmail,
-                    onSendPasswordReset = viewModel::sendPasswordReset,
+                    onSendPasswordReset = { email ->
+                        viewModel.sendPasswordReset(email, prefs.language == LanguageMode.HINDI)
+                    },
                     onSignOut = viewModel::signOutFirebase,
+                    onDeleteAccount = viewModel::deleteAccountAndData,
                     onSyncNow = { viewModel.syncProgressToCloud(silent = false) },
                     onSetBiometricLock = { enabled ->
                         if (enabled) hasPassedSessionUnlock = true
                         viewModel.setBiometricLockEnabled(enabled)
                     },
                     onTestBiometricLock = {
-                        (context as? FragmentActivity)?.let { fragActivity ->
+                        context.findFragmentActivity()?.let { fragActivity ->
                             BiometricAuthHelper.authenticate(
                                 activity = fragActivity,
                                 onSuccess = { viewModel.showNotice("Fingerprint verification succeeded!") },
@@ -458,7 +507,7 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
                         viewModel.closeMockTest()
                         navController.popBackStack()
                         if (wasSubmitted) {
-                            (context as? Activity)?.let { act ->
+                            context.findActivity()?.let { act ->
                                 AdManager.showInterstitialIfReady(act, isTestOrFocusActive = false)
                             }
                         }
@@ -556,7 +605,7 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Button(
                         onClick = {
-                            (context as? FragmentActivity)?.let { fragActivity ->
+                            context.findFragmentActivity()?.let { fragActivity ->
                                 BiometricAuthHelper.authenticate(
                                     activity = fragActivity,
                                     onSuccess = {

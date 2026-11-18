@@ -115,7 +115,6 @@ jobs:
 
       - name: Run Unit Tests
         run: gradle testDebugUnitTest --no-daemon --stacktrace
-        continue-on-error: true
 
       - name: Upload Unit Test Reports
         uses: actions/upload-artifact@v6
@@ -173,7 +172,12 @@ jobs:
                     "package_name": "com.studyguardian.ai"
                   }
                 },
-                "oauth_client": [],
+                "oauth_client": [
+                  {
+                    "client_id": "237357970564-20fegsf1ehp070mbi5v4kam19jo2gnh1.apps.googleusercontent.com",
+                    "client_type": 3
+                  }
+                ],
                 "api_key": [
                   {
                     "current_key": "AIzaSyB8qXBVA5jrv5BkKTaSuGoaotvgjwLPnJI"
@@ -203,10 +207,10 @@ jobs:
             echo "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > release-keystore.jks
             echo "ANDROID_KEYSTORE_PATH=$(pwd)/release-keystore.jks" >> "$GITHUB_ENV"
           else
-            echo "No KEYSTORE_BASE64 secret configured; building unsigned release APK."
+            echo "No KEYSTORE_BASE64 secret configured; building unsigned release APK/AAB."
           fi
 
-      - name: Build Release APK
+      - name: Build Release APK & Play Store AAB
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -217,7 +221,7 @@ jobs:
           ADMOB_REWARDED_ID: ${{ secrets.ADMOB_REWARDED_ID }}
           ADMOB_NATIVE_ID: ${{ secrets.ADMOB_NATIVE_ID }}
           AI_BACKEND_URL: ${{ secrets.AI_BACKEND_URL }}
-        run: gradle assembleRelease --no-daemon --stacktrace
+        run: gradle assembleRelease bundleRelease --no-daemon --stacktrace
 
       - name: Cleanup Keystore
         id: cleanup
@@ -230,4 +234,12 @@ jobs:
         with:
           name: jee-ai-study-guardian-release-apk
           path: app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+      - name: Upload Play Store AAB Artifact
+        uses: actions/upload-artifact@v6
+        if: success()
+        with:
+          name: jee-ai-study-guardian-playstore-aab
+          path: app/build/outputs/bundle/release/*.aab
           retention-days: 30

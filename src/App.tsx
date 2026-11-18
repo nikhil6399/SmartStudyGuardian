@@ -205,22 +205,46 @@ function AppContent() {
         setState(mergedState);
         const synced = await syncStudyStateToCloud(user, mergedState);
         setSyncStatus(
-          `Synced with Firebase (${mergedTests.length} saved tests · ${synced.xpPoints} XP · ${synced.studyStreakDays}d streak)`
+          synced.isOffline
+            ? 'Offline mode — progress saved locally and will sync automatically when online.'
+            : `Synced with Firebase (${mergedTests.length} saved tests · ${synced.xpPoints} XP · ${synced.studyStreakDays}d streak)`
         );
       } catch (err) {
-        console.error('[Firebase Auth Sync]', err);
-        setSyncStatus('Signed in. Cloud sync will retry automatically.');
+        console.warn('[Firebase Auth Sync]', err);
+        setSyncStatus('Signed in locally. Cloud sync will retry automatically.');
       }
     });
     return unsub;
   }, []);
+
+  useEffect(() => {
+    if (!firebaseUser) return;
+    const handleOnline = async () => {
+      try {
+        const snap = await syncStudyStateToCloud(firebaseUser, stateRef.current);
+        if (!snap.isOffline) {
+          setSyncStatus(
+            `Synced with Firebase (${snap.totalMockTests} saved tests · ${snap.xpPoints} XP · ${snap.studyStreakDays}d streak)`
+          );
+        }
+      } catch {
+        // Silent retry on next sync
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [firebaseUser]);
 
   const handleSignInGoogle = async () => {
     try {
       const user = await signInWithGoogle();
       if (user) {
         const snap = await syncStudyStateToCloud(user, stateRef.current);
-        setSyncStatus(`Signed in & synced (${user.displayName || user.email} · ${snap.totalMockTests} tests)`);
+        setSyncStatus(
+          snap.isOffline
+            ? `Signed in locally (${user.displayName || user.email}) — offline sync pending`
+            : `Signed in & synced (${user.displayName || user.email} · ${snap.totalMockTests} tests)`
+        );
       }
     } catch (err) {
       setSyncStatus(formatFirebaseAuthError(err, stateRef.current.language === 'hi'));
@@ -236,7 +260,11 @@ function AppContent() {
     if (!firebaseUser) return;
     try {
       const snap = await syncStudyStateToCloud(firebaseUser, stateRef.current);
-      setSyncStatus(`Synced ${snap.totalMockTests} saved tests, ${snap.completedChapterIds.length} chapters & ${snap.xpPoints} XP.`);
+      setSyncStatus(
+        snap.isOffline
+          ? 'Still offline — saved locally and will sync automatically when connected.'
+          : `Synced ${snap.totalMockTests} saved tests, ${snap.completedChapterIds.length} chapters & ${snap.xpPoints} XP.`
+      );
     } catch (err) {
       setSyncStatus(err instanceof Error ? err.message : 'Sync failed');
     }
@@ -1030,11 +1058,13 @@ function AppContent() {
                       .then(() => syncStudyStateToCloud(firebaseUser, next))
                       .then((snap) => {
                         setSyncStatus(
-                          `Saved test "${res.title}" to Firebase (${snap.totalMockTests} total · ${snap.xpPoints} XP)`
+                          snap.isOffline
+                            ? `Saved "${res.title}" locally — will sync to Firebase when back online`
+                            : `Saved test "${res.title}" to Firebase (${snap.totalMockTests} total · ${snap.xpPoints} XP)`
                         );
                       })
                       .catch((err) => {
-                        console.error('[Mock Test Cloud Save]', err);
+                        console.warn('[Mock Test Cloud Save]', err);
                       });
                   }
                   return next;

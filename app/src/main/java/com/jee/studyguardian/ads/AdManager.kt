@@ -128,32 +128,40 @@ object AdManager {
         configureAgeAppropriateRequestConfig(underAgeSafe)
         initializeUnityAds(activity.applicationContext)
 
-        val params = ConsentRequestParameters.Builder()
-            .setTagForUnderAgeOfConsent(underAgeSafe)
-            .build()
+        runCatching {
+            val params = ConsentRequestParameters.Builder()
+                .setTagForUnderAgeOfConsent(underAgeSafe)
+                .build()
 
-        val consentInfo: ConsentInformation = UserMessagingPlatform.getConsentInformation(activity)
-        consentInfo.requestConsentInfoUpdate(
-            activity,
-            params,
-            {
-                _consentRequired.value = consentInfo.privacyOptionsRequirementStatus ==
-                    ConsentInformation.PrivacyOptionsRequirementStatus.REQUIRED
-                UserMessagingPlatform.loadAndShowConsentFormIfRequired(activity) { _ ->
-                    _canRequestAds.value = consentInfo.canRequestAds()
+            val consentInfo: ConsentInformation = UserMessagingPlatform.getConsentInformation(activity)
+            consentInfo.requestConsentInfoUpdate(
+                activity,
+                params,
+                {
+                    runCatching {
+                        _consentRequired.value = consentInfo.privacyOptionsRequirementStatus ==
+                            ConsentInformation.PrivacyOptionsRequirementStatus.REQUIRED
+                        if (!activity.isFinishing && !activity.isDestroyed) {
+                            UserMessagingPlatform.loadAndShowConsentFormIfRequired(activity) { _ ->
+                                _canRequestAds.value = consentInfo.canRequestAds()
+                                if (consentInfo.canRequestAds()) {
+                                    initializeMobileAds(activity.applicationContext)
+                                }
+                            }
+                        }
+                    }
+                },
+                {
                     if (consentInfo.canRequestAds()) {
                         initializeMobileAds(activity.applicationContext)
                     }
                 }
-            },
-            {
-                if (consentInfo.canRequestAds()) {
-                    initializeMobileAds(activity.applicationContext)
-                }
-            }
-        )
+            )
 
-        if (consentInfo.canRequestAds()) {
+            if (consentInfo.canRequestAds()) {
+                initializeMobileAds(activity.applicationContext)
+            }
+        }.onFailure {
             initializeMobileAds(activity.applicationContext)
         }
     }
@@ -164,32 +172,37 @@ object AdManager {
         val gameId = BuildConfig.UNITY_GAME_ID
         if (gameId.isBlank()) return
         unityInitStarted = true
-        UnityAds.initialize(
-            context.applicationContext,
-            gameId,
-            BuildConfig.DEBUG,
-            object : IUnityAdsInitializationListener {
-                override fun onInitializationComplete() {
-                    runOnMain {
-                        unityInitComplete = true
-                        unityInitStarted = false
-                        preloadUnityInterstitial()
-                        preloadUnityRewarded()
-                        flushPendingUnityBanners()
+        runCatching {
+            UnityAds.initialize(
+                context.applicationContext,
+                gameId,
+                BuildConfig.DEBUG,
+                object : IUnityAdsInitializationListener {
+                    override fun onInitializationComplete() {
+                        runOnMain {
+                            unityInitComplete = true
+                            unityInitStarted = false
+                            preloadUnityInterstitial()
+                            preloadUnityRewarded()
+                            flushPendingUnityBanners()
+                        }
                     }
-                }
 
-                override fun onInitializationFailed(
-                    error: UnityAds.UnityAdsInitializationError?,
-                    message: String?
-                ) {
-                    runOnMain {
-                        unityInitStarted = false
-                        unityInitComplete = false
+                    override fun onInitializationFailed(
+                        error: UnityAds.UnityAdsInitializationError?,
+                        message: String?
+                    ) {
+                        runOnMain {
+                            unityInitStarted = false
+                            unityInitComplete = false
+                        }
                     }
                 }
-            }
-        )
+            )
+        }.onFailure {
+            unityInitStarted = false
+            unityInitComplete = false
+        }
     }
 
     private fun flushPendingUnityBanners() {
@@ -255,12 +268,17 @@ object AdManager {
     @Synchronized
     fun initializeMobileAds(context: Context) {
         if (isMobileAdsInitialized) return
+        if (preferUnityDirectly(bannerAdUnitId) && preferUnityDirectly(interstitialAdUnitId)) return
         isMobileAdsInitialized = true
-        MobileAds.initialize(context) {
-            runOnMain {
-                preloadInterstitial(context)
-                preloadRewarded(context)
+        runCatching {
+            MobileAds.initialize(context.applicationContext) {
+                runOnMain {
+                    preloadInterstitial(context.applicationContext)
+                    preloadRewarded(context.applicationContext)
+                }
             }
+        }.onFailure {
+            isMobileAdsInitialized = false
         }
     }
 
@@ -286,31 +304,34 @@ object AdManager {
     }
 
     private fun attachUnityBanner(activity: Activity, container: FrameLayout) {
-        container.removeAllViews()
-        initializeUnityAds(activity.applicationContext)
+        if (activity.isFinishing || activity.isDestroyed) return
+        runCatching {
+            container.removeAllViews()
+            initializeUnityAds(activity.applicationContext)
 
-        val unityBanner = BannerView(activity, UNITY_BANNER_PLACEMENT, UnityBannerSize(320, 50))
-        val params = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.CENTER_HORIZONTAL
-        )
-        unityBanner.listener = object : BannerView.IListener {
-            override fun onBannerLoaded(bannerAdView: BannerView?) {
-                FirebaseSyncManager.logEvent(activity, "ad_banner_loaded", mapOf("network" to "unity"))
+            val unityBanner = BannerView(activity, UNITY_BANNER_PLACEMENT, UnityBannerSize(320, 50))
+            val params = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER_HORIZONTAL
+            )
+            unityBanner.listener = object : BannerView.IListener {
+                override fun onBannerLoaded(bannerAdView: BannerView?) {
+                    FirebaseSyncManager.logEvent(activity, "ad_banner_loaded", mapOf("network" to "unity"))
+                }
+
+                override fun onBannerShown(bannerAdView: BannerView?) {}
+                override fun onBannerClick(bannerAdView: BannerView?) {}
+                override fun onBannerFailedToLoad(bannerAdView: BannerView?, errorInfo: BannerErrorInfo?) {}
+                override fun onBannerLeftApplication(bannerAdView: BannerView?) {}
             }
+            container.addView(unityBanner, params)
 
-            override fun onBannerShown(bannerAdView: BannerView?) {}
-            override fun onBannerClick(bannerAdView: BannerView?) {}
-            override fun onBannerFailedToLoad(bannerAdView: BannerView?, errorInfo: BannerErrorInfo?) {}
-            override fun onBannerLeftApplication(bannerAdView: BannerView?) {}
-        }
-        container.addView(unityBanner, params)
-
-        if (unityInitComplete || UnityAds.isInitialized) {
-            runCatching { unityBanner.load() }
-        } else {
-            pendingUnityBanners.add(WeakReference(unityBanner))
+            if (unityInitComplete || UnityAds.isInitialized) {
+                runCatching { unityBanner.load() }
+            } else {
+                pendingUnityBanners.add(WeakReference(unityBanner))
+            }
         }
     }
 
@@ -324,7 +345,7 @@ object AdManager {
         personalizedAdsEnabled: Boolean
     ): FrameLayout {
         val container = FrameLayout(activity)
-        if (!_canRequestAds.value) return container
+        if (!_canRequestAds.value || activity.isFinishing || activity.isDestroyed) return container
 
         initializeUnityAds(activity.applicationContext)
 
@@ -333,7 +354,15 @@ object AdManager {
             return container
         }
 
-        val adView = createAdaptiveBannerView(activity, widthDp, personalizedAdsEnabled)
+        val adViewResult = runCatching {
+            createAdaptiveBannerView(activity, widthDp, personalizedAdsEnabled)
+        }
+        val adView = adViewResult.getOrNull()
+        if (adView == null) {
+            attachUnityBanner(activity, container)
+            return container
+        }
+
         adView.adListener = object : AdListener() {
             override fun onAdLoaded() {
                 FirebaseSyncManager.logEvent(activity, "ad_banner_loaded", mapOf("network" to "admob"))

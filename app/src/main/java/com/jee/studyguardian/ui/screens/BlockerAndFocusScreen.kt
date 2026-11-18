@@ -74,9 +74,9 @@ fun BlockerAndFocusScreen(
     var selectedSubTab by remember { mutableIntStateOf(0) }
     var selectedFocusDuration by remember { mutableIntStateOf(120) }
     var showUsageRationale by remember { mutableStateOf(false) }
-    var showFocusPermissionRationale by remember { mutableStateOf(false) }
+    var showNotificationRationale by remember { mutableStateOf(false) }
 
-    val blockingConfirmedActive = prefs.appBlockerEnabled && permissionStatus.accessibilityGranted
+    val blockingConfirmedActive = prefs.appBlockerEnabled && permissionStatus.usageStatsGranted
 
     LaunchedEffect(Unit) {
         onRefreshApps()
@@ -120,15 +120,15 @@ fun BlockerAndFocusScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
 
-                                if (!permissionStatus.accessibilityGranted) {
+                                if (!permissionStatus.usageStatsGranted) {
                                     Text(
-                                        if (isHindi) "ऐप ब्लॉकिंग चालू करने के लिए नीचे 'फोकस अनुमति दें' पर टैप करें।"
-                                        else "Focus Permission is required before Android can block selected apps.",
+                                        if (isHindi) "ऐप ब्लॉकिंग और स्क्रीन टाइम चालू करने के लिए नीचे 'फोकस अनुमति दें' पर टैप करें।"
+                                        else "Usage Access permission is required to detect and shield distracting apps during Focus sessions.",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.secondary
                                     )
-                                    OutlinedButton(onClick = { showFocusPermissionRationale = true }) {
-                                        Text(if (isHindi) "फोकस अनुमति दें" else "Grant Focus Permission")
+                                    OutlinedButton(onClick = { showUsageRationale = true }) {
+                                        Text(if (isHindi) "फोकस अनुमति दें" else "Grant Focus Shield Permission")
                                     }
                                 }
 
@@ -238,13 +238,13 @@ fun BlockerAndFocusScreen(
                                         onClick = { showUsageRationale = true },
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Text(if (permissionStatus.usageStatsGranted) "Screen Time: ON" else "Allow Screen Time")
+                                        Text(if (permissionStatus.usageStatsGranted) "App Shield: ON" else "Enable App Shield")
                                     }
                                     OutlinedButton(
-                                        onClick = { showFocusPermissionRationale = true },
+                                        onClick = { showNotificationRationale = true },
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Text(if (permissionStatus.accessibilityGranted) "App Shield: ON" else "Enable App Shield")
+                                        Text(if (permissionStatus.notificationsGranted) "Alerts: ON" else "Enable Alerts")
                                     }
                                 }
                             }
@@ -423,9 +423,9 @@ fun BlockerAndFocusScreen(
 
     if (showUsageRationale) {
         PermissionRationaleDialog(
-            title = if (isHindi) "स्क्रीन टाइम अनुमति" else "Screen Time Permission",
-            explanation = if (isHindi) "यह अनुमति केवल आपके फ़ोन पर आज का ऐप उपयोग समय दिखाने के लिए उपयोग होती है ताकि आप ध्यान भटकाने वाले ऐप्स चुन सकें।"
-            else "Used strictly on your device to show how many minutes each app was used today so you can pick distractions to limit.",
+            title = if (isHindi) "स्क्रीन टाइम व फोकस शील्ड अनुमति" else "Screen Time & App Shield Permission",
+            explanation = if (isHindi) "यह अनुमति केवल आपके फ़ोन पर आज का ऐप उपयोग समय दिखाने और पढ़ाई के समय चुने गए ध्यान भटकाने वाले ऐप्स को रोकने के लिए उपयोग होती है। पासवर्ड या निजी संदेश कभी नहीं पढ़े जाते।"
+            else "Used strictly on your device to track daily app usage time and alert/shield apps you select during active Focus sessions. Passwords, chats, and screen contents are never read.",
             confirmLabel = if (isHindi) "सेटिंग्स खोलें" else "Continue to Settings",
             onConfirm = {
                 showUsageRationale = false
@@ -435,17 +435,17 @@ fun BlockerAndFocusScreen(
         )
     }
 
-    if (showFocusPermissionRationale) {
+    if (showNotificationRationale) {
         PermissionRationaleDialog(
-            title = if (isHindi) "फोकस शील्ड अनुमति" else "Focus Shield Permission",
-            explanation = if (isHindi) "यह अनुमति केवल पढ़ाई के समय आपके चुने गए ऐप्स को रोकने के लिए है। यह कभी भी पासवर्ड, निजी चैट या स्क्रीनशॉट नहीं पढ़ती।"
-            else "Required so Study Guardian can pause the distracting apps you select during active Focus sessions. It never reads passwords, messages, or screenshots.",
-            confirmLabel = if (isHindi) "सेटिंग्स खोलें" else "Continue to Settings",
+            title = if (isHindi) "नोटिफिकेशन अनुमति" else "Study & Focus Alerts",
+            explanation = if (isHindi) "फोकस टाइमर, स्टडी अलार्म और ध्यान भटकाने वाले ऐप्स की चेतावनी दिखाने के लिए नोटिफिकेशन अनुमति चालू रखें।"
+            else "Required to display active Focus session timers, Study Alarms, and distraction shield reminders.",
+            confirmLabel = if (isHindi) "सेटिंग्स खोलें" else "Open Notification Settings",
             onConfirm = {
-                showFocusPermissionRationale = false
-                PermissionIntents.openAccessibilitySettings(context)
+                showNotificationRationale = false
+                PermissionIntents.openNotificationSettings(context)
             },
-            onDismiss = { showFocusPermissionRationale = false }
+            onDismiss = { showNotificationRationale = false }
         )
     }
 }

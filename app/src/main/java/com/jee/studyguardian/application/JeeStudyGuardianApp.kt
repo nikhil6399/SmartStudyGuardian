@@ -42,10 +42,10 @@ class JeeStudyGuardianApp : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
-        createNotificationChannels()
-        StudyReminderWorker.schedule(this)
+        runCatching { createNotificationChannels() }
+        runCatching { StudyReminderWorker.schedule(this) }
         appScope.launch {
-            container.plannerRepository.seedDefaultTimetableIfEmpty()
+            runCatching { container.plannerRepository.seedDefaultTimetableIfEmpty() }
         }
     }
 

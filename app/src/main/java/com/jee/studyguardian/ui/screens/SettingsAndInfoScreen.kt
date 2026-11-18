@@ -62,6 +62,7 @@ fun SettingsScreen(
     onRegisterEmail: (String, String, String) -> Unit = { _, _, _ -> },
     onSendPasswordReset: (String) -> Unit = {},
     onSignOut: () -> Unit = {},
+    onDeleteAccount: () -> Unit = {},
     onSyncNow: () -> Unit = {},
     onSetBiometricLock: (Boolean) -> Unit = {},
     onTestBiometricLock: () -> Unit = {},
@@ -90,6 +91,7 @@ fun SettingsScreen(
     var restoreJsonInput by remember { mutableStateOf("") }
     var showRestoreDialog by remember { mutableStateOf(false) }
     var showClearDialog by remember { mutableStateOf(false) }
+    var showDeleteAccountDialog by remember { mutableStateOf(false) }
     var showPrivacyDialog by remember { mutableStateOf(false) }
     var showHelpDialog by remember { mutableStateOf(false) }
     var backupNotice by remember { mutableStateOf<String?>(null) }
@@ -237,6 +239,15 @@ fun SettingsScreen(
                             ) {
                                 Text(if (isHindi) "साइन आउट" else "Sign Out")
                             }
+                        }
+                        TextButton(
+                            onClick = { showDeleteAccountDialog = true },
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text(
+                                text = if (isHindi) "खाता और क्लाउड डेटा हमेशा के लिए हटाएं" else "Delete Account & Cloud Data",
+                                color = MaterialTheme.colorScheme.error
+                            )
                         }
                     } else {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -513,12 +524,38 @@ fun SettingsScreen(
         )
     }
 
+    if (showDeleteAccountDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAccountDialog = false },
+            title = { Text(if (isHindi) "खाता हमेशा के लिए हटाएं?" else "Delete Account Permanently?") },
+            text = {
+                Text(
+                    if (isHindi) "यह आपका Firebase छात्र खाता, सहेजे गए मॉक टेस्ट और इस डिवाइस का सभी डेटा हमेशा के लिए हटा देगा।"
+                    else "This permanently deletes your Firebase student account, synced mock tests, cloud study state, and local device data. This action cannot be undone."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showDeleteAccountDialog = false
+                    onDeleteAccount()
+                }) {
+                    Text(if (isHindi) "हाँ, हटाएं" else "Delete Account")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAccountDialog = false }) {
+                    Text(if (isHindi) "रद्द करें" else "Cancel")
+                }
+            }
+        )
+    }
+
     if (showPrivacyDialog) {
         AlertDialog(
             onDismissRequest = { showPrivacyDialog = false },
             title = { Text("Privacy Policy") },
             text = {
-                Text("AI Study Guardian saves your chapter progress, streaks, and completed mock test records directly to your signed-in Firebase student profile while caching notes on your device. App Blocker permissions are strictly used to pause distracting apps you select during Focus Mode and never read passwords, chats, or screenshots.")
+                Text("AI Study Guardian saves your chapter progress, streaks, and completed mock test records directly to your signed-in Firebase student profile while caching notes on your device. Focus Shield uses Android Usage Access only on-device to show screen time and remind you when selected distracting apps open during Focus Mode. Passwords, private messages, and screen contents are never read or uploaded. You can delete your account and cloud data anytime in Settings.")
             },
             confirmButton = { Button(onClick = { showPrivacyDialog = false }) { Text("Close") } }
         )

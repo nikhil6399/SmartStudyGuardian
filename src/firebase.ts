@@ -17,10 +17,15 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromCache,
   getDocFromServer,
   getDocs,
+  getDocsFromCache,
   getFirestore,
+  initializeFirestore,
   limit,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   query,
   serverTimestamp,
   setDoc,
@@ -30,7 +35,31 @@ import firebaseConfig from '../firebase-applet-config.json';
 import { ExamTrack, MockTestResult, PersistedAppState } from './types';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+function createFirestoreInstance() {
+  try {
+    return initializeFirestore(
+      app,
+      {
+        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+        experimentalForceLongPolling: true,
+      },
+      firebaseConfig.firestoreDatabaseId
+    );
+  } catch {
+    try {
+      return initializeFirestore(
+        app,
+        { experimentalForceLongPolling: true },
+        firebaseConfig.firestoreDatabaseId
+      );
+    } catch {
+      return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+    }
+  }
+}
+
+export const db = createFirestoreInstance();
 export const auth = getAuth(app);
 
 export enum OperationType {
@@ -85,12 +114,27 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
+function isFirestoreOfflineError(error: unknown): boolean {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code || '')
+      : '';
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return (
+    code === 'unavailable' ||
+    code === 'firestore/unavailable' ||
+    message.includes('client is offline') ||
+    message.includes('failed to get document because the client is offline') ||
+    message.includes('network error')
+  );
+}
+
 async function testConnection(): Promise<void> {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
+    if (!isFirestoreOfflineError(error)) {
+      console.warn('Firestore startup check notice:', error instanceof Error ? error.message : String(error));
     }
   }
 }
@@ -226,7 +270,7 @@ export function computeEarnedXp(state: PersistedAppState): number {
   return clampNumber(challengeXp + completedChaptersXp + testsXp, 0, 10000000);
 }
 
-export async function ensureUserProfile(user: User, state: PersistedAppState): Promise<void> {
+export async function ensureUserProfile(user: User, state: PersistedAppState): Promise<boolean> {
   const uid = sanitizeId(user.uid);
   const profilePath = `users/${uid}`;
   const profileRef = doc(db, 'users', uid);
@@ -270,7 +314,11 @@ export async function ensureUserProfile(user: User, state: PersistedAppState): P
         { merge: true }
       );
     }
+    return true;
   } catch (error) {
+    if (isFirestoreOfflineError(error)) {
+      return false;
+    }
     handleFirestoreError(error, OperationType.WRITE, profilePath);
   }
 }
@@ -283,15 +331,17 @@ export interface CloudStudySnapshot {
   totalFocusMinutes: number;
   totalMockTests: number;
   completedChapterIds: string[];
+  isOffline?: boolean;
 }
 
 export async function saveMockTestResultToCloud(
   user: User,
   state: PersistedAppState,
   result: MockTestResult
-): Promise<void> {
+): Promise<boolean> {
   const uid = sanitizeId(user.uid);
-  await ensureUserProfile(user, state);
+  const profileOk = await ensureUserProfile(user, state);
+  if (!profileOk) return false;
 
   const testId = sanitizeId(result.id || `mt_${result.timestamp || Date.now()}`);
   const testPath = `users/${uid}/mockTests/${testId}`;
@@ -299,7 +349,7 @@ export async function saveMockTestResultToCloud(
 
   try {
     const existingSnap = await getDoc(testRef);
-    if (existingSnap.exists()) return;
+    if (existingSnap.exists()) return true;
 
     await setDoc(testRef, {
       ownerId: uid,
@@ -318,7 +368,11 @@ export async function saveMockTestResultToCloud(
       takenAtEpochMs: clampNumber(result.timestamp || Date.now(), 0, Number.MAX_SAFE_INTEGER),
       createdAt: serverTimestamp(),
     });
+    return true;
   } catch (error) {
+    if (isFirestoreOfflineError(error)) {
+      return false;
+    }
     handleFirestoreError(error, OperationType.WRITE, testPath);
   }
 }
@@ -326,16 +380,15 @@ export async function saveMockTestResultToCloud(
 export async function loadCloudMockTests(user: User): Promise<MockTestResult[]> {
   const uid = sanitizeId(user.uid);
   const testsPath = `users/${uid}/mockTests`;
-  try {
-    const q = query(
-      collection(db, 'users', uid, 'mockTests'),
-      where('ownerId', '==', uid),
-      limit(100)
-    );
-    const snapshot = await getDocs(q);
+  const q = query(
+    collection(db, 'users', uid, 'mockTests'),
+    where('ownerId', '==', uid),
+    limit(100)
+  );
+  const mapDocs = (snapshot: Awaited<ReturnType<typeof getDocs>>): MockTestResult[] => {
     const items: MockTestResult[] = [];
     snapshot.forEach((docSnap) => {
-      const data = docSnap.data();
+      const data = docSnap.data() as Record<string, unknown>;
       items.push({
         id: typeof data.testId === 'string' ? data.testId : docSnap.id,
         title: typeof data.title === 'string' ? data.title : 'Mock Test',
@@ -354,24 +407,26 @@ export async function loadCloudMockTests(user: User): Promise<MockTestResult[]> 
     });
     items.sort((a, b) => b.timestamp - a.timestamp);
     return items;
+  };
+
+  try {
+    const snapshot = await getDocs(q);
+    return mapDocs(snapshot);
   } catch (error) {
+    if (isFirestoreOfflineError(error)) {
+      try {
+        const cached = await getDocsFromCache(q);
+        return mapDocs(cached);
+      } catch {
+        return [];
+      }
+    }
     handleFirestoreError(error, OperationType.LIST, testsPath);
   }
 }
 
 export async function syncStudyStateToCloud(user: User, state: PersistedAppState): Promise<CloudStudySnapshot> {
   const uid = sanitizeId(user.uid);
-  await ensureUserProfile(user, state);
-
-  // Backfill up to 25 recent local mock tests to user's Firebase profile
-  const recentTests = (state.testHistory ?? []).slice(0, 25);
-  for (const testItem of recentTests) {
-    await saveMockTestResultToCloud(user, state, testItem);
-  }
-
-  const syncPath = `users/${uid}/studyState/current`;
-  const syncRef = doc(db, 'users', uid, 'studyState', 'current');
-
   const completedChapterIds = Object.entries(state.chapterProgress ?? {})
     .filter(([, p]) => p.completed)
     .map(([id]) => id.slice(0, 80))
@@ -395,6 +450,34 @@ export async function syncStudyStateToCloud(user: User, state: PersistedAppState
     completedChapterIds,
   };
 
+  const localFallbackSnapshot: CloudStudySnapshot = {
+    selectedExamTrack: payload.selectedExamTrack,
+    studyStreakDays: payload.studyStreakDays,
+    xpPoints: payload.xpPoints,
+    dailyGoalMinutes: payload.dailyGoalMinutes,
+    totalFocusMinutes: payload.totalFocusMinutes,
+    totalMockTests: payload.totalMockTests,
+    completedChapterIds: payload.completedChapterIds,
+    isOffline: true,
+  };
+
+  const profileOk = await ensureUserProfile(user, state);
+  if (!profileOk) {
+    return localFallbackSnapshot;
+  }
+
+  // Backfill up to 25 recent local mock tests to user's Firebase profile
+  const recentTests = (state.testHistory ?? []).slice(0, 25);
+  for (const testItem of recentTests) {
+    const saved = await saveMockTestResultToCloud(user, state, testItem);
+    if (!saved) {
+      return localFallbackSnapshot;
+    }
+  }
+
+  const syncPath = `users/${uid}/studyState/current`;
+  const syncRef = doc(db, 'users', uid, 'studyState', 'current');
+
   try {
     const snap = await getDoc(syncRef);
     await setDoc(syncRef, {
@@ -410,8 +493,12 @@ export async function syncStudyStateToCloud(user: User, state: PersistedAppState
       totalFocusMinutes: payload.totalFocusMinutes,
       totalMockTests: payload.totalMockTests,
       completedChapterIds: payload.completedChapterIds,
+      isOffline: false,
     };
   } catch (error) {
+    if (isFirestoreOfflineError(error)) {
+      return localFallbackSnapshot;
+    }
     handleFirestoreError(error, OperationType.WRITE, syncPath);
   }
 }
@@ -419,10 +506,10 @@ export async function syncStudyStateToCloud(user: User, state: PersistedAppState
 export async function loadCloudStudyState(user: User): Promise<CloudStudySnapshot | null> {
   const uid = sanitizeId(user.uid);
   const syncPath = `users/${uid}/studyState/current`;
-  try {
-    const snap = await getDoc(doc(db, 'users', uid, 'studyState', 'current'));
+  const syncRef = doc(db, 'users', uid, 'studyState', 'current');
+  const mapSnapshot = (snap: Awaited<ReturnType<typeof getDoc>>): CloudStudySnapshot | null => {
     if (!snap.exists()) return null;
-    const data = snap.data();
+    const data = snap.data() as Record<string, unknown>;
     return {
       selectedExamTrack: typeof data.selectedExamTrack === 'string' ? data.selectedExamTrack : 'CLASS_12_BOARD',
       studyStreakDays: typeof data.studyStreakDays === 'number' ? data.studyStreakDays : 1,
@@ -434,7 +521,20 @@ export async function loadCloudStudyState(user: User): Promise<CloudStudySnapsho
         ? data.completedChapterIds.filter((id: unknown): id is string => typeof id === 'string')
         : [],
     };
+  };
+
+  try {
+    const snap = await getDoc(syncRef);
+    return mapSnapshot(snap);
   } catch (error) {
+    if (isFirestoreOfflineError(error)) {
+      try {
+        const cached = await getDocFromCache(syncRef);
+        return mapSnapshot(cached);
+      } catch {
+        return null;
+      }
+    }
     handleFirestoreError(error, OperationType.GET, syncPath);
   }
 }
