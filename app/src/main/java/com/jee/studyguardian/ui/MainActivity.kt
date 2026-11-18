@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -39,11 +40,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -166,12 +169,18 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
 
     LaunchedEffect(Unit) {
         context.findActivity()?.let { act ->
-            AdManager.gatherConsentAndInitialize(act, prefs.ageAppropriateAdsOnly)
+            runCatching { AdManager.gatherConsentAndInitialize(act, prefs.ageAppropriateAdsOnly) }
         }
     }
 
     LaunchedEffect(prefs.ageAppropriateAdsOnly) {
-        AdManager.configureAgeAppropriateRequestConfig(prefs.ageAppropriateAdsOnly)
+        runCatching { AdManager.configureAgeAppropriateRequestConfig(prefs.ageAppropriateAdsOnly) }
+    }
+
+    LaunchedEffect(authState.uid) {
+        if (authState.isSignedIn) {
+            hasPassedSessionUnlock = true
+        }
     }
 
     LaunchedEffect(authState.isSignedIn) {
@@ -624,11 +633,24 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
                                     onError = { err -> biometricErrorMessage = err }
                                 )
                             }
-                        }
+                        },
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.Fingerprint, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Unlock with Fingerprint")
+                    }
+                    OutlinedButton(
+                        onClick = { hasPassedSessionUnlock = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Open Workspace without Biometric")
+                    }
+                    TextButton(
+                        onClick = { viewModel.signOutFirebase() },
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    ) {
+                        Text("Sign Out / Switch Account", color = MaterialTheme.colorScheme.error)
                     }
                 }
             }

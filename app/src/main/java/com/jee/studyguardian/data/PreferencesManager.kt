@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -15,7 +16,9 @@ import com.jee.studyguardian.models.FilterStrictness
 import com.jee.studyguardian.models.LanguageMode
 import com.jee.studyguardian.models.ThemeMode
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 
 private val Context.guardianDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "jee_study_guardian_prefs"
@@ -99,7 +102,15 @@ class PreferencesManager(private val context: Context) {
         val AI_FILTER_CATEGORIES = stringPreferencesKey("ai_filter_categories")
     }
 
-    val preferencesFlow: Flow<UserPreferencesState> = context.guardianDataStore.data.map { p ->
+    val preferencesFlow: Flow<UserPreferencesState> = context.guardianDataStore.data
+        .catch { exception ->
+            if (exception is IOException) {
+                emit(emptyPreferences())
+            } else {
+                throw exception
+            }
+        }
+        .map { p ->
         val selectedTrack = ExamTrack.entries.firstOrNull { it.name == p[Keys.SELECTED_EXAM_TRACK] }
             ?: ExamTrack.CLASS_12_BOARD
         UserPreferencesState(

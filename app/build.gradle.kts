@@ -24,43 +24,43 @@ android {
             useSupportLibrary = true
         }
 
-        val aiBackendUrl = project.findProperty("AI_BACKEND_URL")?.toString()
-            ?: System.getenv("AI_BACKEND_URL")
-            ?: ""
+        fun envOrProp(key: String, fallback: String): String {
+            val fromProp = project.findProperty(key)?.toString()?.trim()
+            if (!fromProp.isNullOrEmpty()) return fromProp
+            val fromEnv = System.getenv(key)?.trim()
+            if (!fromEnv.isNullOrEmpty()) return fromEnv
+            return fallback
+        }
+
+        val aiBackendUrl = envOrProp("AI_BACKEND_URL", "")
         buildConfigField("String", "DEFAULT_AI_BACKEND_URL", "\"$aiBackendUrl\"")
 
-        // Official Google AdMob Test App ID for debug builds; override via gradle/env for production
-        val admobAppId = project.findProperty("ADMOB_APP_ID")?.toString()
-            ?: System.getenv("ADMOB_APP_ID")
-            ?: "ca-app-pub-3940256099942544~3347511713"
+        // Official Google AdMob Test App ID fallback; override via gradle/env for production
+        val rawAdmobAppId = envOrProp("ADMOB_APP_ID", "ca-app-pub-3940256099942544~3347511713")
+        val admobAppId = if (rawAdmobAppId.contains("~")) {
+            rawAdmobAppId
+        } else {
+            "ca-app-pub-3940256099942544~3347511713"
+        }
         manifestPlaceholders["admobAppId"] = admobAppId
 
-        val bannerUnitId = project.findProperty("ADMOB_BANNER_ID")?.toString()
-            ?: System.getenv("ADMOB_BANNER_ID")
-            ?: "ca-app-pub-3940256099942544/9214589741"
-        val interstitialUnitId = project.findProperty("ADMOB_INTERSTITIAL_ID")?.toString()
-            ?: System.getenv("ADMOB_INTERSTITIAL_ID")
-            ?: "ca-app-pub-3940256099942544/1033173712"
-        val rewardedUnitId = project.findProperty("ADMOB_REWARDED_ID")?.toString()
-            ?: System.getenv("ADMOB_REWARDED_ID")
-            ?: "ca-app-pub-3940256099942544/5224354917"
-        val nativeUnitId = project.findProperty("ADMOB_NATIVE_ID")?.toString()
-            ?: System.getenv("ADMOB_NATIVE_ID")
-            ?: "ca-app-pub-3940256099942544/2247696110"
+        val bannerUnitId = envOrProp("ADMOB_BANNER_ID", "ca-app-pub-3940256099942544/9214589741")
+        val interstitialUnitId = envOrProp("ADMOB_INTERSTITIAL_ID", "ca-app-pub-3940256099942544/1033173712")
+        val rewardedUnitId = envOrProp("ADMOB_REWARDED_ID", "ca-app-pub-3940256099942544/5224354917")
+        val nativeUnitId = envOrProp("ADMOB_NATIVE_ID", "ca-app-pub-3940256099942544/2247696110")
 
         buildConfigField("String", "ADMOB_BANNER_ID", "\"$bannerUnitId\"")
         buildConfigField("String", "ADMOB_INTERSTITIAL_ID", "\"$interstitialUnitId\"")
         buildConfigField("String", "ADMOB_REWARDED_ID", "\"$rewardedUnitId\"")
         buildConfigField("String", "ADMOB_NATIVE_ID", "\"$nativeUnitId\"")
 
-        val unityGameId = project.findProperty("UNITY_GAME_ID")?.toString()
-            ?: System.getenv("UNITY_GAME_ID")
-            ?: "800441454"
+        val unityGameId = envOrProp("UNITY_GAME_ID", "800441454")
         buildConfigField("String", "UNITY_GAME_ID", "\"$unityGameId\"")
 
-        val webClientId = project.findProperty("WEB_CLIENT_ID")?.toString()
-            ?: System.getenv("WEB_CLIENT_ID")
-            ?: "237357970564-20fegsf1ehp070mbi5v4kam19jo2gnh1.apps.googleusercontent.com"
+        val webClientId = envOrProp(
+            "WEB_CLIENT_ID",
+            "237357970564-20fegsf1ehp070mbi5v4kam19jo2gnh1.apps.googleusercontent.com"
+        )
         buildConfigField("String", "WEB_CLIENT_ID", "\"$webClientId\"")
     }
 

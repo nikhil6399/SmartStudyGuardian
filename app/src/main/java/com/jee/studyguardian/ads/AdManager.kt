@@ -218,50 +218,58 @@ object AdManager {
 
     private fun preloadUnityInterstitial() {
         if (!unityInitComplete && !UnityAds.isInitialized) return
-        UnityAds.load(
-            UNITY_INTERSTITIAL_PLACEMENT,
-            UnityAdsLoadOptions(),
-            object : IUnityAdsLoadListener {
-                override fun onUnityAdsAdLoaded(placementId: String?) {
-                    runOnMain { unityInterstitialReady = true }
-                }
+        runCatching {
+            UnityAds.load(
+                UNITY_INTERSTITIAL_PLACEMENT,
+                UnityAdsLoadOptions(),
+                object : IUnityAdsLoadListener {
+                    override fun onUnityAdsAdLoaded(placementId: String?) {
+                        runOnMain { unityInterstitialReady = true }
+                    }
 
-                override fun onUnityAdsFailedToLoad(
-                    placementId: String?,
-                    error: UnityAds.UnityAdsLoadError?,
-                    message: String?
-                ) {
-                    runOnMain { unityInterstitialReady = false }
+                    override fun onUnityAdsFailedToLoad(
+                        placementId: String?,
+                        error: UnityAds.UnityAdsLoadError?,
+                        message: String?
+                    ) {
+                        runOnMain { unityInterstitialReady = false }
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 
     private fun preloadUnityRewarded() {
         if (!unityInitComplete && !UnityAds.isInitialized) return
-        UnityAds.load(
-            UNITY_REWARDED_PLACEMENT,
-            UnityAdsLoadOptions(),
-            object : IUnityAdsLoadListener {
-                override fun onUnityAdsAdLoaded(placementId: String?) {
-                    runOnMain { unityRewardedReady = true }
-                }
+        runCatching {
+            UnityAds.load(
+                UNITY_REWARDED_PLACEMENT,
+                UnityAdsLoadOptions(),
+                object : IUnityAdsLoadListener {
+                    override fun onUnityAdsAdLoaded(placementId: String?) {
+                        runOnMain { unityRewardedReady = true }
+                    }
 
-                override fun onUnityAdsFailedToLoad(
-                    placementId: String?,
-                    error: UnityAds.UnityAdsLoadError?,
-                    message: String?
-                ) {
-                    runOnMain { unityRewardedReady = false }
+                    override fun onUnityAdsFailedToLoad(
+                        placementId: String?,
+                        error: UnityAds.UnityAdsLoadError?,
+                        message: String?
+                    ) {
+                        runOnMain { unityRewardedReady = false }
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 
     fun showPrivacyOptionsForm(activity: Activity) {
-        UserMessagingPlatform.showPrivacyOptionsForm(activity) { _ ->
-            val info = UserMessagingPlatform.getConsentInformation(activity)
-            _canRequestAds.value = info.canRequestAds()
+        runCatching {
+            UserMessagingPlatform.showPrivacyOptionsForm(activity) { _ ->
+                runCatching {
+                    val info = UserMessagingPlatform.getConsentInformation(activity)
+                    _canRequestAds.value = info.canRequestAds()
+                }
+            }
         }
     }
 
@@ -387,25 +395,28 @@ object AdManager {
         if (!_canRequestAds.value) return
         initializeUnityAds(context.applicationContext)
         preloadUnityInterstitial()
-        if (preferUnityDirectly(interstitialAdUnitId)) return
+        val unitId = interstitialAdUnitId
+        if (unitId.isBlank() || preferUnityDirectly(unitId)) return
 
-        InterstitialAd.load(
-            context,
-            interstitialAdUnitId,
-            buildAdRequest(personalizedAdsEnabled),
-            object : InterstitialAdLoadCallback() {
-                override fun onAdLoaded(ad: InterstitialAd) {
-                    runOnMain { interstitialAd = ad }
-                }
+        runCatching {
+            InterstitialAd.load(
+                context,
+                unitId,
+                buildAdRequest(personalizedAdsEnabled),
+                object : InterstitialAdLoadCallback() {
+                    override fun onAdLoaded(ad: InterstitialAd) {
+                        runOnMain { interstitialAd = ad }
+                    }
 
-                override fun onAdFailedToLoad(error: LoadAdError) {
-                    runOnMain {
-                        interstitialAd = null
-                        preloadUnityInterstitial()
+                    override fun onAdFailedToLoad(error: LoadAdError) {
+                        runOnMain {
+                            interstitialAd = null
+                            preloadUnityInterstitial()
+                        }
                     }
                 }
-            }
-        )
+            )
+        }
     }
 
     /**
@@ -497,25 +508,28 @@ object AdManager {
         if (!_canRequestAds.value) return
         initializeUnityAds(context.applicationContext)
         preloadUnityRewarded()
-        if (preferUnityDirectly(rewardedAdUnitId)) return
+        val unitId = rewardedAdUnitId
+        if (unitId.isBlank() || preferUnityDirectly(unitId)) return
 
-        RewardedAd.load(
-            context,
-            rewardedAdUnitId,
-            buildAdRequest(personalizedAdsEnabled),
-            object : RewardedAdLoadCallback() {
-                override fun onAdLoaded(ad: RewardedAd) {
-                    runOnMain { rewardedAd = ad }
-                }
+        runCatching {
+            RewardedAd.load(
+                context,
+                unitId,
+                buildAdRequest(personalizedAdsEnabled),
+                object : RewardedAdLoadCallback() {
+                    override fun onAdLoaded(ad: RewardedAd) {
+                        runOnMain { rewardedAd = ad }
+                    }
 
-                override fun onAdFailedToLoad(error: LoadAdError) {
-                    runOnMain {
-                        rewardedAd = null
-                        preloadUnityRewarded()
+                    override fun onAdFailedToLoad(error: LoadAdError) {
+                        runOnMain {
+                            rewardedAd = null
+                            preloadUnityRewarded()
+                        }
                     }
                 }
-            }
-        )
+            )
+        }
     }
 
     fun showRewardedAd(
