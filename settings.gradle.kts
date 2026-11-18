@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "JEE_AI_Study_Guardian"
+rootProject.name = "Smart_Study_Guardian"
 include(":app")

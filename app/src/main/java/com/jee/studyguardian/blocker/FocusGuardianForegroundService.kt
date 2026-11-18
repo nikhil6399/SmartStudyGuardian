@@ -230,7 +230,7 @@ class FocusGuardianForegroundService : Service() {
         )
         return NotificationCompat.Builder(this, JeeStudyGuardianApp.CHANNEL_FOCUS_SERVICE)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("JEE Study Guardian Focus Mode")
+            .setContentTitle("Smart Study Guardian Focus Mode")
             .setContentText(contentText)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

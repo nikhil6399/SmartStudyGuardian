@@ -100,7 +100,7 @@ fun AuthGateScreen(
                             )
                             Column {
                                 Text(
-                                    text = "AI Study Guardian",
+                                    text = "Smart Study Guardian",
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold
                                 )

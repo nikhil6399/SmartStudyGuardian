@@ -315,7 +315,7 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
                                 SubRoutes.MOCK_TEST -> "Mock Test"
                                 SubRoutes.STUDY_PLANNER -> "Study Planner"
                                 SubRoutes.ANALYTICS -> "Study Progress"
-                                else -> "AI Study Guardian"
+                                else -> "Smart Study Guardian"
                             }
                         )
                     },
@@ -593,7 +593,7 @@ private fun JeeStudyGuardianRoot(viewModel: MainViewModel) {
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "AI Study Guardian Locked",
+                        text = "Smart Study Guardian Locked",
                         style = MaterialTheme.typography.headlineSmall,
                         textAlign = TextAlign.Center
                     )

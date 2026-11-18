@@ -8,7 +8,7 @@ export function StudyGuardianMascot({ size = 56, meditating = false }: { size?: 
       viewBox="0 0 120 120"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      aria-label="JEE AI Study Guardian Mascot"
+      aria-label="Smart Study Guardian Mascot"
       className="shrink-0"
     >
       <defs>

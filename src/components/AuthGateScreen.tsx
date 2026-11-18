@@ -111,7 +111,7 @@ export function AuthGateScreen({
             </div>
             <div>
               <h1 className="text-xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-                AI Study Guardian
+                Smart Study Guardian
               </h1>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 {isHindi ? 'जारी रखने के लिए साइन इन या साइन अप करें' : 'Sign in or create a student profile to begin'}

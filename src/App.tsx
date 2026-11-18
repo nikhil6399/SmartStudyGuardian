@@ -82,7 +82,7 @@ class AppErrorBoundary extends React.Component<
       return (
         <div className="min-h-screen bg-slate-50 dark:bg-[#050C24] text-slate-900 dark:text-slate-100 flex items-center justify-center p-6">
           <div className="max-w-md w-full rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0A173B] p-6 text-center space-y-4">
-            <h1 className="text-lg font-bold">AI Study Guardian</h1>
+            <h1 className="text-lg font-bold">Smart Study Guardian</h1>
             <p className="text-sm text-slate-600 dark:text-slate-300">
               A temporary display issue occurred. Click below to restore your study dashboard cleanly.
             </p>
@@ -459,7 +459,7 @@ function AppContent() {
         startAlarmRingLoop(alarm.tone);
         if (state.notificationsEnabled && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
           try {
-            new Notification('AI Study Guardian — Study Alarm', {
+            new Notification('Smart Study Guardian — Study Alarm', {
               body: `${formatTime12h(alarm.time)} · ${alarm.label}`,
             });
           } catch {
@@ -613,7 +613,7 @@ function AppContent() {
         .then((perm) => {
           if (perm === 'granted') {
             sendLocalNotificationSafe(
-              'AI Study Guardian',
+              'Smart Study Guardian',
               state.language === 'hi'
                 ? 'डेली AI चैलेंज और अध्ययन रिमाइंडर चालू हो गए हैं।'
                 : 'Daily AI Challenge & study session reminders are now active.'
@@ -729,7 +729,7 @@ function AppContent() {
             onClick={() => navigateTab('home')}
             className="text-lg font-extrabold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0"
           >
-            AI Study Guardian
+            Smart Study Guardian
           </button>
 
           <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600 dark:text-slate-300">
@@ -1486,7 +1486,7 @@ function AppContent() {
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                {isHindi ? 'ऐप अनलॉक करें' : 'Unlock AI Study Guardian'}
+                {isHindi ? 'ऐप अनलॉक करें' : 'Unlock Smart Study Guardian'}
               </h2>
               <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
                 {isHindi

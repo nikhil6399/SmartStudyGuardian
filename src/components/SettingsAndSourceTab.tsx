@@ -691,10 +691,10 @@ export function SettingsTab({
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
           <div className="w-full max-w-lg rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0A173B] p-6 space-y-4">
             <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-              {isHindi ? 'गोपनीयता नीति — AI Study Guardian' : 'Privacy Policy — AI Study Guardian'}
+              {isHindi ? 'गोपनीयता नीति — Smart Study Guardian' : 'Privacy Policy — Smart Study Guardian'}
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              AI Study Guardian associates your syllabus progress, study streaks, and completed mock test records exclusively with your signed-in Firebase account, while keeping personal notes cached on your device. Focus Shield controls never read your messages, passwords, or screenshots.
+              Smart Study Guardian associates your syllabus progress, study streaks, and completed mock test records exclusively with your signed-in Firebase account, while keeping personal notes cached on your device. Focus Shield controls never read your messages, passwords, or screenshots.
             </p>
             <button
               onClick={() => setShowPrivacyModal(false)}

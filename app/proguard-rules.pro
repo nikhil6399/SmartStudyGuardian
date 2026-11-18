@@ -4,7 +4,10 @@
 -keep class com.jee.studyguardian.models.** { *; }
 -keep class com.jee.studyguardian.database.** { *; }
 -keep class com.jee.studyguardian.firebase.** { *; }
+-keep class com.jee.studyguardian.ai.** { *; }
+-keep class com.jee.studyguardian.filters.** { *; }
 -dontwarn androidx.room.paging.**
+-dontwarn kotlinx.coroutines.**
 
 # Firebase & Google Play Services Auth
 -keepattributes Signature

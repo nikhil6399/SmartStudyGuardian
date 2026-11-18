@@ -28,7 +28,7 @@ object BiometricAuthHelper {
 
     fun authenticate(
         activity: FragmentActivity,
-        title: String = "Unlock AI Study Guardian",
+        title: String = "Unlock Smart Study Guardian",
         subtitle: String = "Use your fingerprint or device lock to continue",
         onSuccess: () -> Unit,
         onError: (String) -> Unit

@@ -112,7 +112,7 @@ export async function enrollWebBiometric(userLabel: string): Promise<{
     const credential = (await navigator.credentials.create({
       publicKey: {
         challenge: challenge.buffer as ArrayBuffer,
-        rp: { name: 'AI Study Guardian' },
+        rp: { name: 'Smart Study Guardian' },
         user: {
           id: userId.buffer as ArrayBuffer,
           name: userLabel || 'student@studyguardian.ai',

@@ -8,10 +8,13 @@ on:
   workflow_dispatch:
     inputs:
       build_release:
-        description: 'Build Release APK (requires signing secrets)'
+        description: 'Build Release APK & Play Store AAB'
         required: false
-        default: false
+        default: true
         type: boolean
+
+permissions:
+  contents: write
 
 jobs:
   debug-build-and-test:
@@ -109,8 +112,9 @@ jobs:
         uses: actions/upload-artifact@v6
         if: success()
         with:
-          name: jee-ai-study-guardian-debug-apk
+          name: smart-study-guardian-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+          compression-level: 0
           retention-days: 30
 
       - name: Run Unit Tests
@@ -125,9 +129,9 @@ jobs:
           if-no-files-found: ignore
 
   release-build:
-    name: Build Release APK
+    name: Build Release APK & AAB
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && inputs.build_release == true
+    if: github.event_name != 'workflow_dispatch' || inputs.build_release == true
     needs: debug-build-and-test
 
     steps:
@@ -199,15 +203,19 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Decode Release Keystore
+      - name: Prepare Release Signing
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           if [ -n "${KEYSTORE_BASE64:-}" ]; then
             echo "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > release-keystore.jks
             echo "ANDROID_KEYSTORE_PATH=$(pwd)/release-keystore.jks" >> "$GITHUB_ENV"
+            echo "- **Release Signing:** Production Release Keystore (Play Store Ready)" >> $GITHUB_STEP_SUMMARY
           else
-            echo "No KEYSTORE_BASE64 secret configured; building unsigned release APK/AAB."
+            if [ ! -f app/debug.keystore ]; then
+              keytool -genkey -v -keystore app/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            fi
+            echo "- **Release Signing:** Debug fallback keystore (directly installable for testing; add KEYSTORE_BASE64 secret before Play Store submission)" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Build Release APK & Play Store AAB
@@ -232,14 +240,72 @@ jobs:
         uses: actions/upload-artifact@v6
         if: success()
         with:
-          name: jee-ai-study-guardian-release-apk
+          name: smart-study-guardian-release-apk
           path: app/build/outputs/apk/release/*.apk
+          compression-level: 0
           retention-days: 30
 
       - name: Upload Play Store AAB Artifact
         uses: actions/upload-artifact@v6
         if: success()
         with:
-          name: jee-ai-study-guardian-playstore-aab
+          name: smart-study-guardian-playstore-aab
           path: app/build/outputs/bundle/release/*.aab
+          compression-level: 0
           retention-days: 30
+
+  publish-release:
+    name: Publish Direct APK Downloads (GitHub Release)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: [ debug-build-and-test, release-build ]
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Download Debug APK
+        uses: actions/download-artifact@v4
+        with:
+          name: smart-study-guardian-debug-apk
+          path: dist-apks/debug
+
+      - name: Download Release APK
+        uses: actions/download-artifact@v4
+        with:
+          name: smart-study-guardian-release-apk
+          path: dist-apks/release
+
+      - name: Download Play Store AAB
+        uses: actions/download-artifact@v4
+        with:
+          name: smart-study-guardian-playstore-aab
+          path: dist-apks/aab
+
+      - name: Prepare Direct APK & AAB Files
+        shell: bash
+        run: |
+          mkdir -p release-files
+          DEBUG_APK=$(find dist-apks/debug -name "*.apk" | head -n 1)
+          RELEASE_APK=$(find dist-apks/release -name "*.apk" | head -n 1)
+          RELEASE_AAB=$(find dist-apks/aab -name "*.aab" | head -n 1)
+          if [ -n "$DEBUG_APK" ]; then cp "$DEBUG_APK" release-files/Smart-Study-Guardian-debug.apk; fi
+          if [ -n "$RELEASE_APK" ]; then cp "$RELEASE_APK" release-files/Smart-Study-Guardian-release.apk; fi
+          if [ -n "$RELEASE_AAB" ]; then cp "$RELEASE_AAB" release-files/Smart-Study-Guardian-playstore.aab; fi
+          ls -lh release-files/
+
+      - name: Publish Direct APKs to GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          if gh release view latest-apk >/dev/null 2>&1; then
+            gh release upload latest-apk release-files/* --clobber || echo "::warning::Could not update GitHub Release (enable Read and write permissions in Repo Settings -> Actions -> Workflow permissions)."
+          else
+            gh release create latest-apk release-files/* \
+              --title "Smart Study Guardian — Direct APK & AAB Downloads" \
+              --notes "Download .apk directly on Android without extracting any ZIP file." \
+              --target "${{ github.sha }}" || echo "::warning::Could not create GitHub Release (enable Read and write permissions in Repo Settings -> Actions -> Workflow permissions)."
+          fi

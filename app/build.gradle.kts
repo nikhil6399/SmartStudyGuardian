@@ -103,6 +103,11 @@ android {
             val hasSigning = !System.getenv("ANDROID_KEYSTORE_PATH").isNullOrBlank()
             if (hasSigning) {
                 signingConfig = signingConfigs.getByName("release")
+            } else {
+                val debugKs = file("debug.keystore")
+                if (debugKs.exists()) {
+                    signingConfig = signingConfigs.getByName("debug")
+                }
             }
         }
     }

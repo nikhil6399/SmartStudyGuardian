@@ -555,7 +555,7 @@ fun SettingsScreen(
             onDismissRequest = { showPrivacyDialog = false },
             title = { Text("Privacy Policy") },
             text = {
-                Text("AI Study Guardian saves your chapter progress, streaks, and completed mock test records directly to your signed-in Firebase student profile while caching notes on your device. Focus Shield uses Android Usage Access only on-device to show screen time and remind you when selected distracting apps open during Focus Mode. Passwords, private messages, and screen contents are never read or uploaded. You can delete your account and cloud data anytime in Settings.")
+                Text("Smart Study Guardian saves your chapter progress, streaks, and completed mock test records directly to your signed-in Firebase student profile while caching notes on your device. Focus Shield uses Android Usage Access only on-device to show screen time and remind you when selected distracting apps open during Focus Mode. Passwords, private messages, and screen contents are never read or uploaded. You can delete your account and cloud data anytime in Settings.")
             },
             confirmButton = { Button(onClick = { showPrivacyDialog = false }) { Text("Close") } }
         )
