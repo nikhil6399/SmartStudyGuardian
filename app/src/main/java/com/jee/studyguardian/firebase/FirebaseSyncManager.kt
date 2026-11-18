@@ -169,13 +169,28 @@ object FirebaseSyncManager {
             val auth = FirebaseAuth.getInstance()
             val result = auth.createUserWithEmailAndPassword(email.trim(), password).await()
             val user = result.user
-            if (user != null && displayName.isNotBlank()) {
-                runCatching {
-                    user.updateProfile(
-                        UserProfileChangeRequest.Builder()
-                            .setDisplayName(displayName.trim().take(100))
-                            .build()
-                    ).await()
+            if (user != null) {
+                if (displayName.isNotBlank()) {
+                    runCatching {
+                        user.updateProfile(
+                            UserProfileChangeRequest.Builder()
+                                .setDisplayName(displayName.trim().take(100))
+                                .build()
+                        ).await()
+                    }
+                }
+                val db = firestoreOrNull()
+                if (db != null) {
+                    runCatching {
+                        ensureUserProfileDocument(
+                            db = db,
+                            user = user,
+                            selectedExamTrack = "CLASS_12_BOARD",
+                            studyStreakDays = 1,
+                            xpPoints = 0,
+                            biometricEnabled = false
+                        )
+                    }
                 }
             }
             val mapped = mapUser(auth.currentUser)
